@@ -180,8 +180,8 @@ impl Graphics {
             cache: None,
         });
 
-        // let vertices = Vertex::machine_boundary(max_travels);
-        let vertices = [];
+        let vertices = Vertex::fixed(max_travels);
+        // let vertices = [];
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GSim"),

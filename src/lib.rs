@@ -16,7 +16,7 @@ use crate::{app::View, gui::Gui, interpreter::BlockSummary, parser::Point, tui::
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
-const MACHINE_TRAVELS: Point = Point::new(400.0, 250.0, -200.0);
+const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, -600.0);
 
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
