@@ -180,7 +180,8 @@ impl Graphics {
             cache: None,
         });
 
-        let vertices = Vertex::machine_boundary(max_travels);
+        // let vertices = Vertex::machine_boundary(max_travels);
+        let vertices = [];
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GSim"),
@@ -528,9 +529,5 @@ impl ApplicationHandler<Command> for Gui {
         }
 
         self.last_command = Some(event);
-    }
-
-    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
-        let _ = event_loop;
     }
 }

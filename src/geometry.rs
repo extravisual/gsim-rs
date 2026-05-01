@@ -5,8 +5,8 @@ use winit::dpi::PhysicalSize;
 use crate::{app::View, parser::Point};
 
 const DEFAULT_VIEW: View = View::Isometric;
-const DEFAULT_STROKE_WIDTH: f32 = 0.003;
-const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.5;
+const DEFAULT_STROKE_WIDTH: f32 = 0.005;
+const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [1.0, 1.0, 1.0];
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const FEED_MOVE_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
@@ -225,10 +225,10 @@ fn machine_size(max_travels: &[f32], view: &View) -> [f32; 2] {
 }
 
 // returns the real estate required to project the whole machine cuboid, in machine units
-fn project_bounding_box(machine_size: &[f32]) -> [f32; 2] {
+fn project_bounding_box(max_travels: &[f32]) -> [f32; 2] {
     [
-        (machine_size[0].abs() + machine_size[1].abs()) / 2.0_f32.sqrt(),
-        (machine_size[0].abs() + machine_size[1].abs() + machine_size[2].abs()) / 3.0_f32.sqrt(),
+        (max_travels[0].abs() + max_travels[1].abs()) / 2.0_f32.sqrt(),
+        (max_travels[0].abs() + max_travels[1].abs() + max_travels[2].abs()) / 3.0_f32.sqrt(),
     ]
 }
 
@@ -278,7 +278,6 @@ pub fn points(start: Point, end: Point) -> Box<dyn Iterator<Item = Point>> {
     let mut current = start;
 
     Box::new(std::iter::from_fn(move || {
-        // done
         if current == end {
             return None;
         }

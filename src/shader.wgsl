@@ -29,9 +29,11 @@ const SQRT_2: f32 = 1.41421356;
 const SQRT_3: f32 = 1.73205081;
 
 fn iso_project(in: vec3<f32>) -> vec2<f32> {
+    // the arithemtic operations here assume winit coordinate system
+    // positive y and z will make the view go down in the window
     return vec2<f32>(
-        (in.x - in.y) / SQRT_2,
-        (in.x + in.y + in.z) / SQRT_3, // since z will always be negative, in.z is + here
+        (in.x + in.y) / SQRT_2,
+        (in.x - in.y - in.z) / SQRT_3,
     );
 }
 
@@ -40,6 +42,7 @@ fn iso_project(in: vec3<f32>) -> vec2<f32> {
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     let window_size = uniforms.window_size;
     let max_travels = uniforms.max_travels;
+    let absolute_max_travels = abs(uniforms.max_travels);
     let stroke_width = in.stroke_width;
     let scale = uniforms.scale;
     let padding = uniforms.padding;
@@ -54,30 +57,32 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     var end: vec2<f32>;
 
     if isometric {
-        // coordinates wrt origin of the bounding box
+        // all values here are in winit window coordinate system
+        // down is y positive
         start = iso_project(_start);
         end = iso_project(_end);
 
-        let x_offset = abs(max_travels.y) * scale / SQRT_2;
-        let y_offset = abs(max_travels.z) * scale / SQRT_3;
+        // origin is to be on left side of the screen, therefore no x offset
+        let y_offset = (window_size.y / 2.0) - ((absolute_max_travels.x - absolute_max_travels.y +
+        absolute_max_travels.z) / 2.0) * scale / SQRT_3;
 
-        start.x += x_offset + padding.x;
-        start.y = (uniforms.window_size.y - start.y) - (padding.y + y_offset);
-        end.x += x_offset + padding.x;
-        end.y = (uniforms.window_size.y - end.y) - (padding.y + y_offset);
+        start.x += padding.x;
+        start.y += y_offset;
+        end.x += padding.x;
+        end.y += y_offset;
     } else {
         start = _start.xy;
         end = _end.xy;
 
         // position on screen with respect to the window coordinate system(0 on top left corner)
         // without padding
-        if uniforms.max_travels.x >= 0.0 {
-            if uniforms.max_travels.y >= 0.0 {
+        if max_travels.x >= 0.0 {
+            if max_travels.y >= 0.0 {
                 // machine zero on lower left corner, all positive vals
                 start.x += padding.x;
-                start.y = (uniforms.window_size.y - start.y) - padding.y;
+                start.y = (window_size.y - start.y) - padding.y;
                 end.x += padding.x;
-                end.y = (uniforms.window_size.y - end.y) - padding.y;
+                end.y = (window_size.y - end.y) - padding.y;
             } else {
                 // machine zero on top left corner, negative y vals
                 start.x += padding.x;
@@ -86,27 +91,27 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
                 end.y = abs(end.y) + padding.y;
             }
         } else {
-            if uniforms.max_travels.y >= 0.0 {
+            if max_travels.y >= 0.0 {
                 // machine zero on lower right corner, negative x vals
-                start.x = (uniforms.window_size.x - abs(start.x)) + padding.x;
+                start.x = (window_size.x - abs(start.x)) + padding.x;
                 start.y += padding.y;
-                end.x = (uniforms.window_size.x - abs(end.x)) + padding.x;
+                end.x = (window_size.x - abs(end.x)) + padding.x;
                 end.y += padding.y;
             } else {
                 // machine zero on top right corner, all negative vals
-                start.x = (uniforms.window_size.x - abs(start.x)) + padding.x;
+                start.x = (window_size.x - abs(start.x)) + padding.x;
                 start.y = abs(start.y) + padding.y;
-                end.x = (uniforms.window_size.x - abs(end.x)) + padding.x;
+                end.x = (window_size.x - abs(end.x)) + padding.x;
                 end.y = abs(end.y) + padding.y;
             }
         }
     }
 
     // flip y to match coordinate system of clip space
-    start.x = (start.x / uniforms.window_size.x) * 2.0 - 1.0;
-    end.x = (end.x / uniforms.window_size.x) * 2.0 - 1.0;
-    start.y = 1.0 - (start.y / uniforms.window_size.y) * 2.0;
-    end.y = 1.0 - (end.y / uniforms.window_size.y) * 2.0;
+    start.x = (start.x / window_size.x) * 2.0 - 1.0;
+    end.x = (end.x / window_size.x) * 2.0 - 1.0;
+    start.y = 1.0 - (start.y / window_size.y) * 2.0;
+    end.y = 1.0 - (end.y / window_size.y) * 2.0;
 
     // unit vector from start to end
     let dir = normalize(end - start);
