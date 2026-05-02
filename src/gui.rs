@@ -266,8 +266,11 @@ impl Graphics {
         vertex.end = [end.x() as f32, end.y() as f32, end.z() as f32];
 
         // update the last vertex
-        self.queue
-            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&[vertex]));
+        self.queue.write_buffer(
+            &self.vertex_buffer,
+            self.offset - bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64,
+            bytemuck::cast_slice(&[vertex]),
+        );
     }
 
     // rewrites updated fixed vertices to the vertex buffer
