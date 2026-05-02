@@ -83,6 +83,10 @@ pub struct App {
     pub interpreter: Interpreter,
     /// Index of current block being executed for preview.
     pub current: usize,
+    /// Total number of summaries stored before [`MCode::Stop`](crate::parser::MCode::Stop) block.
+    /// This is stored on the first pass, so that next passes can know when to issue
+    /// [`Interrupt::End`].
+    pub total: Option<usize>,
     /// `None` if the program is running.
     pub interrupt: Option<Interrupt>,
     /// Summaries for all executed blocks.
@@ -120,6 +124,7 @@ impl App {
                 Machine::build(max_travels, Unit::default())?,
             ),
             current: 0,
+            total: None,
             interrupt: Some(Interrupt::Start),
             summary: Vec::new(),
             proxy,
@@ -241,37 +246,48 @@ impl App {
             return;
         }
 
-        // no need to execute again, just display the stored results
-        // if let Some(summary) = self.summary.get(self.current) {
-        //     self.proxy
-        //         .send_event(Command::Render(self.view, summary.clone()))
-        //         .unwrap();
-        //     self.current += 1;
-        //     return;
-        // }
-
-        let res = match self.interpreter.execute() {
-            Ok(res) => res,
-            Err(err) => {
-                self.error = Some(err.into());
-                return;
+        // branch off on if the results are already stored
+        let block = match self.total {
+            Some(total) => {
+                if self.current > total {
+                    unreachable!("Current count will never exceed total count.")
+                } else if self.current == total {
+                    // end
+                    None
+                } else {
+                    // send stored summary
+                    Some(self.summary[self.current].clone())
+                }
             }
+            None => match self.interpreter.execute() {
+                // res can be a new summary or None for end
+                Ok(res) => res,
+                Err(err) => {
+                    self.error = Some(err.into());
+                    return;
+                }
+            },
         };
 
-        match res {
+        match block {
             Some(s) => {
-                self.summary.push(s.clone());
+                // this was a new block
+                if self.total.is_none() {
+                    self.summary.push(s.clone());
+                }
+
                 self.proxy
                     .send_event(Command::Render(self.view, s))
                     .unwrap();
-            }
-            None => {
-                self.interrupt = Some(Interrupt::End);
-                return;
-            }
-        };
 
-        self.current += 1;
+                self.current += 1;
+            }
+
+            None => {
+                self.total = Some(self.current);
+                self.interrupt = Some(Interrupt::End);
+            }
+        }
     }
 }
 
