@@ -27,8 +27,12 @@ pub struct Graphics {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    // number of vertices that make up the grid/axis/boundary
+    fixed_vertex_count: u32,
+    // total number of vertices, including fixed ones
     vertex_count: u32,
     current_vertex: Option<Vertex>,
+    fixed_offset: u64,
     offset: u64,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
@@ -201,8 +205,10 @@ impl Graphics {
             window,
             pipeline,
             vertex_buffer,
+            fixed_vertex_count: vertices.len() as u32,
             vertex_count: vertices.len() as u32,
             current_vertex: None,
+            fixed_offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
             offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
             uniforms,
             uniform_buffer,
@@ -265,6 +271,13 @@ impl Graphics {
             self.offset - bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64,
             bytemuck::cast_slice(&[vertex]),
         );
+    }
+
+    // clear non fixed vertices from the screen
+    fn clear(&mut self) {
+        self.vertex_count = self.fixed_vertex_count;
+        self.offset = self.fixed_offset;
+        self.current_vertex = None;
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
@@ -525,7 +538,16 @@ impl ApplicationHandler<Command> for Gui {
                 self.current_points = Some(points);
             }
 
-            Command::Stop(_) => event_loop.exit(),
+            Command::Clear => {
+                self.current_points = None;
+                let graphics = self.graphics.as_mut().expect("App has been started");
+                graphics.clear();
+                graphics.window.request_redraw();
+            }
+
+            Command::Stop(_) => {
+                event_loop.exit();
+            }
         }
 
         self.last_command = Some(event);

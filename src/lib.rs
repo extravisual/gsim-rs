@@ -23,6 +23,7 @@ const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, -600.0);
 #[derive(Debug)]
 pub enum Command {
     Render(View, BlockSummary),
+    Clear,
     Stop(Option<anyhow::Error>),
 }
 

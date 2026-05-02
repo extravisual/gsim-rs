@@ -296,6 +296,7 @@ impl Interpreter {
     /// Reloads the [`Interpreter`] to start from beginning of the [`Parser`].
     pub fn reload(&mut self) {
         self.parser.reload();
+        self.machine.reset();
     }
 
     /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).

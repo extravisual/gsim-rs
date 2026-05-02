@@ -191,7 +191,9 @@ impl App {
                 {
                     // Skip events that are not KeyEventKind::Press
                     match key.code {
-                        KeyCode::Char('Q') => return Ok(self),
+                        KeyCode::Char('Q') => {
+                            return Ok(self);
+                        }
                         KeyCode::Char('v') => {
                             match self.view {
                                 View::Top => self.view = View::Isometric,
@@ -210,13 +212,9 @@ impl App {
                         KeyCode::Enter => match self.interrupt {
                             Some(Interrupt::End) => self.reload(),
                             Some(Interrupt::Start) => {
-                                if pending {
-                                    self.interrupt = None;
-                                    self.execute();
-                                    pending = false;
-                                } else {
-                                    continue;
-                                }
+                                self.interrupt = None;
+                                self.execute();
+                                pending = false;
                             }
                             Some(_) => self.interrupt = None,
                             None => {}
@@ -227,10 +225,6 @@ impl App {
             } else {
                 continue;
             }
-
-            // self.error = Some(GSimError::Interpreter(
-            //     crate::interpreter::InterpreterError::ExcessCode(b'b'),
-            // ));
         }
     }
 
@@ -238,6 +232,7 @@ impl App {
         self.current = 0;
         self.interrupt = Some(Interrupt::Start);
         self.interpreter.reload();
+        self.proxy.send_event(Command::Clear).unwrap();
     }
 
     /// Execute a single block from the Parser.
@@ -247,12 +242,13 @@ impl App {
         }
 
         // no need to execute again, just display the stored results
-        if let Some(summary) = self.summary.get(self.current) {
-            self.proxy
-                .send_event(Command::Render(self.view, summary.clone()))
-                .unwrap();
-            return;
-        }
+        // if let Some(summary) = self.summary.get(self.current) {
+        //     self.proxy
+        //         .send_event(Command::Render(self.view, summary.clone()))
+        //         .unwrap();
+        //     self.current += 1;
+        //     return;
+        // }
 
         let res = match self.interpreter.execute() {
             Ok(res) => res,

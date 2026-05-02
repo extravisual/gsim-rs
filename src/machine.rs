@@ -442,11 +442,14 @@ impl Machine {
     /// - **Plane** -- XY
     /// - **Coolant** -- Off
     /// - **Feed Mode** -- Feed Per Minute
+    ///
+    /// Also moves the machine to [`HOME_POS`].
     pub fn reset(&mut self) {
         self.spindle_off();
         self.set_plane(Plane::default());
         self.set_coolant(false);
         self.set_feed_mode(FeedMode::default());
+        self.pos = HOME_POS;
     }
 
     //

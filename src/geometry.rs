@@ -24,7 +24,7 @@ const X_AXIS_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const Y_AXIS_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
 const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
 // units travelled per frame
-const SPEED: f64 = 2.5;
+const SPEED: f64 = 50.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
