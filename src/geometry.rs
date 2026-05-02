@@ -4,10 +4,9 @@ use winit::dpi::PhysicalSize;
 
 use crate::{app::View, parser::Point};
 
-const RENDER_BOUNDARY: bool = false;
-const RENDER_ORIGIN: bool = true;
-// render grid on xy plane
-const RENDER_GRID: bool = true;
+const SHOW_MACHINE_BOUNDARY: bool = false;
+const SHOW_GRID: bool = true;
+const SHOW_ORIGIN: bool = true;
 
 const DEFAULT_VIEW: View = View::Isometric;
 
@@ -69,169 +68,175 @@ impl Vertex {
         }
     }
 
-    pub fn fixed(max_travels: &Point) -> Vec<Self> {
+    pub fn fixed(max_travels: &Point, fixed_config: Fixed_Vertex_Config) -> Vec<Self> {
         let mut ret = vec![];
         let x = max_travels.x() as f32;
         let y = max_travels.y() as f32;
         let z = max_travels.z() as f32;
 
-        if RENDER_BOUNDARY {
-            ret.extend_from_slice(&[
-                Self {
-                    start: [x, y, z],
-                    end: [0.0, y, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [x, y, z],
-                    end: [x, 0.0, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [0.0, y, z],
-                    end: [0.0, 0.0, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [x, 0.0, z],
-                    end: [0.0, 0.0, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [x, y, 0.0],
-                    end: [0.0, y, 0.0],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [x, y, 0.0],
-                    end: [x, 0.0, 0.0],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [0.0, y, 0.0],
-                    end: [0.0, 0.0, 0.0],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [x, 0.0, 0.0],
-                    end: [0.0, 0.0, 0.0],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [x, y, 0.0],
-                    end: [x, y, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [x, 0.0, 0.0],
-                    end: [x, 0.0, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [0.0, y, 0.0],
-                    end: [0.0, y, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-                Self {
-                    start: [0.0, 0.0, 0.0],
-                    end: [0.0, 0.0, z],
-                    color: MACHINE_BOUNDARY_COLOR,
-                    stroke_width: MACHINE_BOUNDARY_WIDTH,
-                },
-            ]);
+        let boundary_stroke_width = if fixed_config.machine_boundary {
+            MACHINE_BOUNDARY_WIDTH
+        } else {
+            0.0
+        };
+        let grid_stroke_width = if fixed_config.grid { GRID_WIDTH } else { 0.0 };
+        let origin_stroke_width = if fixed_config.origin {
+            ORIGIN_WIDTH
+        } else {
+            0.0
+        };
+
+        ret.extend_from_slice(&[
+            Self {
+                start: [x, y, z],
+                end: [0.0, y, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [x, y, z],
+                end: [x, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [0.0, y, z],
+                end: [0.0, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [x, 0.0, z],
+                end: [0.0, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [x, y, 0.0],
+                end: [0.0, y, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [x, y, 0.0],
+                end: [x, 0.0, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [0.0, y, 0.0],
+                end: [0.0, 0.0, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [x, 0.0, 0.0],
+                end: [0.0, 0.0, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [x, y, 0.0],
+                end: [x, y, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [x, 0.0, 0.0],
+                end: [x, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [0.0, y, 0.0],
+                end: [0.0, y, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+            Self {
+                start: [0.0, 0.0, 0.0],
+                end: [0.0, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: boundary_stroke_width,
+            },
+        ]);
+
+        ret.extend_from_slice(&[
+            Self {
+                start: [0.0, 0.0, 0.0],
+                end: [x.abs() * 2.0, 0.0, 0.0],
+                color: X_AXIS_COLOR,
+                stroke_width: origin_stroke_width,
+            },
+            Self {
+                start: [0.0, 0.0, 0.0],
+                end: [0.0, y.abs() * 2.0, 0.0],
+                color: Y_AXIS_COLOR,
+                stroke_width: origin_stroke_width,
+            },
+            Self {
+                start: [0.0, 0.0, 0.0],
+                end: [0.0, 0.0, z.abs() * 2.0],
+                color: Z_AXIS_COLOR,
+                stroke_width: origin_stroke_width,
+            },
+        ]);
+
+        let step = if x.abs() > 1000.0 {
+            100.0
+        } else if x.abs() > 500.0 {
+            50.0
+        } else if x.abs() > 250.0 {
+            25.0
+        } else {
+            10.0
+        };
+
+        let mut current_x = 0.0;
+        let mut current_y = 0.0;
+
+        while current_x < x.abs() * 2.0 {
+            current_x += step;
+            ret.push(Self {
+                start: [current_x, -y.abs() * 2.0, 0.0],
+                end: [current_x, y.abs() * 2.0, 0.0],
+                color: GRID_COLOR,
+                stroke_width: grid_stroke_width,
+            });
         }
 
-        if RENDER_ORIGIN {
-            ret.extend_from_slice(&[
-                Self {
-                    start: [0.0, 0.0, 0.0],
-                    end: [x.abs() * 2.0, 0.0, 0.0],
-                    color: X_AXIS_COLOR,
-                    stroke_width: ORIGIN_WIDTH,
-                },
-                Self {
-                    start: [0.0, 0.0, 0.0],
-                    end: [0.0, y.abs() * 2.0, 0.0],
-                    color: Y_AXIS_COLOR,
-                    stroke_width: ORIGIN_WIDTH,
-                },
-                Self {
-                    start: [0.0, 0.0, 0.0],
-                    end: [0.0, 0.0, z.abs() * 2.0],
-                    color: Z_AXIS_COLOR,
-                    stroke_width: ORIGIN_WIDTH,
-                },
-            ]);
+        current_x = 0.0;
+
+        while current_x > -x.abs() * 2.0 {
+            current_x -= step;
+            ret.push(Self {
+                start: [current_x, -y.abs() * 2.0, 0.0],
+                end: [current_x, y.abs() * 2.0, 0.0],
+                color: GRID_COLOR,
+                stroke_width: grid_stroke_width,
+            });
         }
 
-        if RENDER_GRID {
-            let step = if x.abs() > 1000.0 {
-                100.0
-            } else if x.abs() > 500.0 {
-                50.0
-            } else if x.abs() > 250.0 {
-                25.0
-            } else {
-                10.0
-            };
+        while current_y < y.abs() * 2.0 {
+            current_y += step;
+            ret.push(Self {
+                start: [-x.abs() * 2.0, current_y, 0.0],
+                end: [x.abs() * 2.0, current_y, 0.0],
+                color: GRID_COLOR,
+                stroke_width: grid_stroke_width,
+            });
+        }
 
-            let mut current_x = 0.0;
-            let mut current_y = 0.0;
+        current_y = 0.0;
 
-            while current_x < x.abs() * 2.0 {
-                current_x += step;
-                ret.push(Self {
-                    start: [current_x, -y.abs() * 2.0, 0.0],
-                    end: [current_x, y.abs() * 2.0, 0.0],
-                    color: GRID_COLOR,
-                    stroke_width: GRID_WIDTH,
-                });
-            }
-
-            current_x = 0.0;
-
-            while current_x > -x.abs() * 2.0 {
-                current_x -= step;
-                ret.push(Self {
-                    start: [current_x, -y.abs() * 2.0, 0.0],
-                    end: [current_x, y.abs() * 2.0, 0.0],
-                    color: GRID_COLOR,
-                    stroke_width: GRID_WIDTH,
-                });
-            }
-
-            while current_y < y.abs() * 2.0 {
-                current_y += step;
-                ret.push(Self {
-                    start: [-x.abs() * 2.0, current_y, 0.0],
-                    end: [x.abs() * 2.0, current_y, 0.0],
-                    color: GRID_COLOR,
-                    stroke_width: GRID_WIDTH,
-                });
-            }
-
-            current_y = 0.0;
-
-            while current_y > -y.abs() * 2.0 {
-                current_y -= step;
-                ret.push(Self {
-                    start: [-x.abs() * 2.0, current_y, 0.0],
-                    end: [x.abs() * 2.0, current_y, 0.0],
-                    color: GRID_COLOR,
-                    stroke_width: GRID_WIDTH,
-                });
-            }
+        while current_y > -y.abs() * 2.0 {
+            current_y -= step;
+            ret.push(Self {
+                start: [-x.abs() * 2.0, current_y, 0.0],
+                end: [x.abs() * 2.0, current_y, 0.0],
+                color: GRID_COLOR,
+                stroke_width: grid_stroke_width,
+            });
         }
 
         ret
@@ -394,4 +399,35 @@ pub fn points(start: Point, end: Point) -> Box<dyn Iterator<Item = Point>> {
 
         Some(current)
     }))
+}
+
+#[derive(Clone, Copy)]
+pub struct Fixed_Vertex_Config {
+    machine_boundary: bool,
+    grid: bool,
+    origin: bool,
+}
+
+impl Default for Fixed_Vertex_Config {
+    fn default() -> Self {
+        Self {
+            machine_boundary: SHOW_MACHINE_BOUNDARY,
+            grid: SHOW_GRID,
+            origin: SHOW_ORIGIN,
+        }
+    }
+}
+
+impl Fixed_Vertex_Config {
+    pub fn toggle_machine_boundary(&mut self) {
+        self.machine_boundary = !self.machine_boundary
+    }
+
+    pub fn toggle_gird(&mut self) {
+        self.grid = !self.grid
+    }
+
+    pub fn toggle_origin(&mut self) {
+        self.origin = !self.origin
+    }
 }

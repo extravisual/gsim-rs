@@ -13,7 +13,7 @@ use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 use crate::{
     Command, Signal,
     app::View,
-    geometry::{Uniforms, Vertex, points},
+    geometry::{Fixed_Vertex_Config, Uniforms, Vertex, points},
     machine::{Motion, MotionSummary},
     parser::Point,
 };
@@ -47,6 +47,7 @@ impl Graphics {
         handle: OwnedDisplayHandle,
         window: Arc<Window>,
         max_travels: &Point,
+        fixed_config: Fixed_Vertex_Config,
     ) -> anyhow::Result<Self> {
         let window_size = window.inner_size();
 
@@ -184,8 +185,7 @@ impl Graphics {
             cache: None,
         });
 
-        let vertices = Vertex::fixed(max_travels);
-        // let vertices = [];
+        let vertices = Vertex::fixed(max_travels, fixed_config);
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GSim"),
@@ -266,11 +266,17 @@ impl Graphics {
         vertex.end = [end.x() as f32, end.y() as f32, end.z() as f32];
 
         // update the last vertex
-        self.queue.write_buffer(
-            &self.vertex_buffer,
-            self.offset - bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64,
-            bytemuck::cast_slice(&[vertex]),
-        );
+        self.queue
+            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&[vertex]));
+    }
+
+    // rewrites updated fixed vertices to the vertex buffer
+    fn update_fixed(&mut self, max_travels: &Point, fixed_config: Fixed_Vertex_Config) {
+        let vertices = Vertex::fixed(max_travels, fixed_config);
+
+        // update the fixed vertices
+        self.queue
+            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
     }
 
     // clear non fixed vertices from the screen
@@ -383,6 +389,7 @@ pub struct Gui {
     graphics: Option<Graphics>,
     // for passing render errors out of the loop
     error: Option<anyhow::Error>,
+    fixed_config: Fixed_Vertex_Config,
     event_loop: Option<EventLoop<Command>>,
 }
 
@@ -399,6 +406,7 @@ impl Gui {
             motion: Motion::Rapid,
             graphics: None,
             error: None,
+            fixed_config: Fixed_Vertex_Config::default(),
             event_loop: Some(event_loop),
         }
     }
@@ -452,6 +460,7 @@ impl ApplicationHandler<Command> for Gui {
             event_loop.owned_display_handle(),
             Arc::new(window),
             &self.max_travels,
+            self.fixed_config,
         ))
         .expect("Could not initialize GPU resources");
 
@@ -507,6 +516,8 @@ impl ApplicationHandler<Command> for Gui {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
+        let graphics = self.graphics.as_mut().expect("App has been started");
+
         match &event {
             Command::Render(view, block) => {
                 if block.new_pos == block.org_pos {
@@ -522,7 +533,6 @@ impl ApplicationHandler<Command> for Gui {
                     };
                 };
 
-                let graphics = self.graphics.as_mut().expect("App has been started");
                 graphics.set_view(*view);
 
                 let mut points = points(block.org_pos, block.new_pos); // output does not include start pos
@@ -538,9 +548,26 @@ impl ApplicationHandler<Command> for Gui {
                 self.current_points = Some(points);
             }
 
+            Command::ToggleMachineBoundary => {
+                self.fixed_config.toggle_machine_boundary();
+                graphics.update_fixed(&self.max_travels, self.fixed_config);
+                graphics.window.request_redraw();
+            }
+
+            Command::ToggleGrid => {
+                self.fixed_config.toggle_gird();
+                graphics.update_fixed(&self.max_travels, self.fixed_config);
+                graphics.window.request_redraw();
+            }
+
+            Command::ToggleOrigin => {
+                self.fixed_config.toggle_origin();
+                graphics.update_fixed(&self.max_travels, self.fixed_config);
+                graphics.window.request_redraw();
+            }
+
             Command::Clear => {
                 self.current_points = None;
-                let graphics = self.graphics.as_mut().expect("App has been started");
                 graphics.clear();
                 graphics.window.request_redraw();
             }

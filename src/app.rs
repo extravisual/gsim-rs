@@ -210,6 +210,20 @@ impl App {
                             self.single = !self.single;
                             continue;
                         }
+                        KeyCode::Char('b') => {
+                            self.proxy
+                                .send_event(Command::ToggleMachineBoundary)
+                                .unwrap();
+                            continue;
+                        }
+                        KeyCode::Char('g') => {
+                            self.proxy.send_event(Command::ToggleGrid).unwrap();
+                            continue;
+                        }
+                        KeyCode::Char('o') => {
+                            self.proxy.send_event(Command::ToggleOrigin).unwrap();
+                            continue;
+                        }
                         KeyCode::Char('n') if pending && self.interrupt.is_none() => {
                             self.execute();
                             pending = false;
@@ -290,6 +304,3 @@ impl App {
         }
     }
 }
-
-// n should be used in single block.
-// enter should be used when not in single block and detection of stop signal

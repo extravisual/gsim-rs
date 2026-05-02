@@ -40,6 +40,16 @@ fn iso_project(in: vec3<f32>) -> vec2<f32> {
 // mark as a valid vertex shader
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
+    // 0 stroke width is intentional and meant when the vertex is not to be shown
+    if in.stroke_width == 0.0 {
+        var clipped: VertexOutput;
+
+        clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.1);
+        clipped.color = vec3<f32>(0.0, 0.0, 0.0);
+
+        return clipped;
+    }
+
     let window_size = uniforms.window_size;
     let max_travels = uniforms.max_travels;
     let absolute_max_travels = abs(uniforms.max_travels);

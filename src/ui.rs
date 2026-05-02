@@ -108,7 +108,13 @@ fn get_keys(app: &App) -> Paragraph<'_> {
         Span::styled("v", Style::default().fg(Color::Yellow)),
         ": toggle view / ".into(),
         Span::styled("s", Style::default().fg(Color::Yellow)),
-        ": toggle single".into(),
+        ": toggle single / ".into(),
+        Span::styled("g", Style::default().fg(Color::Yellow)),
+        ": toggle grid / ".into(),
+        Span::styled("o", Style::default().fg(Color::Yellow)),
+        ": toggle origin / ".into(),
+        Span::styled("b", Style::default().fg(Color::Yellow)),
+        ": toggle machine boundary".into(),
     ];
 
     if app.single && app.interrupt.is_none() {

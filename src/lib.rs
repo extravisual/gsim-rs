@@ -23,6 +23,9 @@ const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, -600.0);
 #[derive(Debug)]
 pub enum Command {
     Render(View, BlockSummary),
+    ToggleMachineBoundary,
+    ToggleGrid,
+    ToggleOrigin,
     Clear,
     Stop(Option<anyhow::Error>),
 }
