@@ -2,7 +2,11 @@ use std::cmp::Ordering;
 
 use winit::dpi::PhysicalSize;
 
-use crate::{app::View, parser::Point};
+use crate::{
+    app::View,
+    machine::{CircularDirection, MotionSummary, PlanarPoint},
+    parser::Point,
+};
 
 const SHOW_MACHINE_BOUNDARY: bool = false;
 const SHOW_GRID: bool = true;
@@ -68,7 +72,7 @@ impl Vertex {
         }
     }
 
-    pub fn fixed(max_travels: &Point, fixed_config: Fixed_Vertex_Config) -> Vec<Self> {
+    pub fn fixed(max_travels: &Point, fixed_config: FixedVertexConfig) -> Vec<Self> {
         let mut ret = vec![];
         let x = max_travels.x() as f32;
         let y = max_travels.y() as f32;
@@ -242,7 +246,7 @@ impl Vertex {
         ret
     }
 
-    pub fn rapid_move(start: &Point, end: &Point) -> Self {
+    pub fn rapid_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x() as f32, start.y() as f32, start.z() as f32],
             end: [end.x() as f32, end.y() as f32, end.z() as f32],
@@ -251,7 +255,7 @@ impl Vertex {
         }
     }
 
-    pub fn feed_move(start: &Point, end: &Point) -> Self {
+    pub fn feed_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x() as f32, start.y() as f32, start.z() as f32],
             end: [end.x() as f32, end.y() as f32, end.z() as f32],
@@ -402,13 +406,13 @@ pub fn points(start: Point, end: Point) -> Box<dyn Iterator<Item = Point>> {
 }
 
 #[derive(Clone, Copy)]
-pub struct Fixed_Vertex_Config {
+pub struct FixedVertexConfig {
     machine_boundary: bool,
     grid: bool,
     origin: bool,
 }
 
-impl Default for Fixed_Vertex_Config {
+impl Default for FixedVertexConfig {
     fn default() -> Self {
         Self {
             machine_boundary: SHOW_MACHINE_BOUNDARY,
@@ -418,7 +422,7 @@ impl Default for Fixed_Vertex_Config {
     }
 }
 
-impl Fixed_Vertex_Config {
+impl FixedVertexConfig {
     pub fn toggle_machine_boundary(&mut self) {
         self.machine_boundary = !self.machine_boundary
     }
@@ -429,5 +433,69 @@ impl Fixed_Vertex_Config {
 
     pub fn toggle_origin(&mut self) {
         self.origin = !self.origin
+    }
+}
+
+pub enum Vertices {
+    Linear(Box<dyn Iterator<Item = Vertex>>),
+    Arc(Box<dyn Iterator<Item = Vertex>>),
+}
+
+impl Vertices {
+    pub fn new(summary: MotionSummary) -> Self {
+        match summary {
+            MotionSummary::Rapid { org_pos, new_pos } => {
+                Self::linear_points(org_pos, new_pos, Vertex::rapid_move)
+            }
+            MotionSummary::Feed { org_pos, new_pos } => {
+                Self::linear_points(org_pos, new_pos, Vertex::feed_move)
+            }
+            MotionSummary::Arc {
+                org_pos,
+                new_pos,
+                dir,
+                center,
+                ..
+            } => Self::arc_points(org_pos, new_pos, dir, center),
+        }
+    }
+
+    // takes in a function pointer that provides the vertex
+    fn linear_points(start: Point, end: Point, vertex: fn(Point, Point) -> Vertex) -> Self {
+        // relative distance of end point from start
+        let dir = end - start;
+        // distance between start and end points
+        let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
+
+        if dist <= SPEED {
+            return Self::Linear(Box::new([vertex(start, end)].into_iter()));
+        }
+
+        // amount to move each axis by to get next point
+        let delta = dir.mul_float(SPEED).div_float(dist);
+
+        let mut current = start;
+
+        Self::Linear(Box::new(std::iter::from_fn(move || {
+            if current == end {
+                return None;
+            }
+
+            let next = current + delta;
+            let remaining = end - next;
+
+            // use dot product to see if the next point is between start and end
+            if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
+                current = end;
+            } else {
+                current = next;
+            }
+
+            Some(vertex(start, current))
+        })))
+    }
+
+    fn arc_points(start: Point, end: Point, dir: CircularDirection, center: PlanarPoint) -> Self {
+        todo!()
     }
 }

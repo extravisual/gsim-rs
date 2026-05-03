@@ -161,7 +161,7 @@ impl Add for Point {
 }
 
 /// Same as [`Point`] but the fields are [`Option`]al.
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct PartialPoint(Option<Float>, Option<Float>, Option<Float>);
 
 impl PartialPoint {

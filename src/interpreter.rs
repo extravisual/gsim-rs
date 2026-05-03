@@ -225,7 +225,7 @@ impl Interpreter {
             motion = Some(match machine.motion() {
                 Motion::Rapid => {
                     let pos = excess_codes.take_partial_point();
-                    gcode_lines.push(GCode::RapidMove(pos.clone()).to_string());
+                    gcode_lines.push(GCode::RapidMove(pos).to_string());
                     machine.rapid_move(pos)?
                 }
 

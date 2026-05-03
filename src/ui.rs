@@ -355,7 +355,7 @@ fn render_main(app: &App, frame: &mut Frame, rect: Rect) {
 /// Generates and renders the text view of the app.
 fn render_text_view(app: &App, frame: &mut Frame, rect: Rect) {
     let summary = app
-        .summary
+        .summaries
         .get(app.current.saturating_sub(1))
         .expect("App module has pushed the text descriptions for the current block.");
 

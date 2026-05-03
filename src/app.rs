@@ -92,7 +92,7 @@ pub struct App {
     /// Summaries for all executed blocks.
     /// These stay in memory for the whole life of the program,
     /// making looping for the second times more efficient.
-    pub summary: Vec<BlockSummary>,
+    pub summaries: Vec<BlockSummary>,
     /// Send rendering jobs to the [`Winit`](winit) thread.
     pub proxy: EventLoopProxy<Command>,
     /// Proceed and send another job to the [`Winit`](winit) thread.
@@ -126,7 +126,7 @@ impl App {
             current: 0,
             total: None,
             interrupt: Some(Interrupt::Start),
-            summary: Vec::new(),
+            summaries: Vec::new(),
             proxy,
             signal,
             last_signal: None,
@@ -135,15 +135,13 @@ impl App {
 
     // check for any updates from the main thread
     fn signal(&mut self) -> anyhow::Result<Option<Signal>> {
-        self.last_signal = match self.signal.try_recv() {
-            Ok(signal) => Some(signal),
+        match self.signal.try_recv() {
+            Ok(signal) => Ok(Some(signal)),
             Err(err) => match err {
-                TryRecvError::Empty => None,
+                TryRecvError::Empty => Ok(None),
                 TryRecvError::Disconnected => return Err(err.into()),
             },
-        };
-
-        Ok(self.last_signal)
+        }
     }
 
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> anyhow::Result<Self>
@@ -180,15 +178,10 @@ impl App {
                 if poll(Duration::from_millis(100))? {
                     if let Event::Key(key) = event::read()?
                         && key.kind != event::KeyEventKind::Release
+                        && key.code == KeyCode::Enter
                     {
-                        if key.code == KeyCode::Enter {
-                            return Err(self.error.take().unwrap().into());
-                        } else {
-                            continue;
-                        }
+                        return Err(self.error.take().unwrap().into());
                     }
-                } else {
-                    continue;
                 }
             } else if poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()?
@@ -196,38 +189,32 @@ impl App {
                 {
                     // Skip events that are not KeyEventKind::Press
                     match key.code {
-                        KeyCode::Char('Q') => {
-                            return Ok(self);
-                        }
+                        KeyCode::Char('Q') => return Ok(self),
+
                         KeyCode::Char('v') => {
                             match self.view {
                                 View::Top => self.view = View::Isometric,
                                 View::Isometric => self.view = View::Top,
                             };
-                            continue;
+                            self.proxy.send_event(Command::SetView(self.view)).unwrap();
                         }
-                        KeyCode::Char('s') => {
-                            self.single = !self.single;
-                            continue;
-                        }
-                        KeyCode::Char('b') => {
-                            self.proxy
-                                .send_event(Command::ToggleMachineBoundary)
-                                .unwrap();
-                            continue;
-                        }
-                        KeyCode::Char('g') => {
-                            self.proxy.send_event(Command::ToggleGrid).unwrap();
-                            continue;
-                        }
-                        KeyCode::Char('o') => {
-                            self.proxy.send_event(Command::ToggleOrigin).unwrap();
-                            continue;
-                        }
+
+                        KeyCode::Char('s') => self.single = !self.single,
+
+                        KeyCode::Char('b') => self
+                            .proxy
+                            .send_event(Command::ToggleMachineBoundary)
+                            .unwrap(),
+
+                        KeyCode::Char('g') => self.proxy.send_event(Command::ToggleGrid).unwrap(),
+
+                        KeyCode::Char('o') => self.proxy.send_event(Command::ToggleOrigin).unwrap(),
+
                         KeyCode::Char('n') if pending && self.interrupt.is_none() => {
                             self.execute();
                             pending = false;
                         }
+
                         KeyCode::Enter => match self.interrupt {
                             Some(Interrupt::End) => self.reload(),
                             Some(Interrupt::Start) => {
@@ -270,7 +257,7 @@ impl App {
                     None
                 } else {
                     // send stored summary
-                    Some(self.summary[self.current].clone())
+                    Some(self.summaries[self.current].clone())
                 }
             }
             None => match self.interpreter.execute() {
@@ -284,15 +271,15 @@ impl App {
         };
 
         match block {
-            Some(s) => {
+            Some(summary) => {
+                if let Some(motion) = &summary.motion {
+                    self.proxy.send_event(Command::Render(*motion)).unwrap();
+                };
+
                 // this was a new block
                 if self.total.is_none() {
-                    self.summary.push(s.clone());
+                    self.summaries.push(summary);
                 }
-
-                self.proxy
-                    .send_event(Command::Render(self.view, s))
-                    .unwrap();
 
                 self.current += 1;
             }

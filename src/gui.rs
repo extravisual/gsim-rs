@@ -13,8 +13,7 @@ use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 use crate::{
     Command, Signal,
     app::View,
-    geometry::{Fixed_Vertex_Config, Uniforms, Vertex, points},
-    machine::{Motion, MotionSummary},
+    geometry::{FixedVertexConfig, Uniforms, Vertex, Vertices},
     parser::Point,
 };
 
@@ -31,9 +30,10 @@ pub struct Graphics {
     fixed_vertex_count: u32,
     // total number of vertices, including fixed ones
     vertex_count: u32,
-    current_vertex: Option<Vertex>,
     fixed_offset: u64,
     offset: u64,
+    // vertices left to be drawn to complete the current move
+    current_vertices: Option<Vertices>,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
@@ -47,7 +47,7 @@ impl Graphics {
         handle: OwnedDisplayHandle,
         window: Arc<Window>,
         max_travels: &Point,
-        fixed_config: Fixed_Vertex_Config,
+        fixed_config: FixedVertexConfig,
     ) -> anyhow::Result<Self> {
         let window_size = window.inner_size();
 
@@ -207,9 +207,9 @@ impl Graphics {
             vertex_buffer,
             fixed_vertex_count: vertices.len() as u32,
             vertex_count: vertices.len() as u32,
-            current_vertex: None,
             fixed_offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
             offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
+            current_vertices: None,
             uniforms,
             uniform_buffer,
             uniform_bind_group: bind_group,
@@ -236,36 +236,61 @@ impl Graphics {
         );
     }
 
-    // adds a new vertex to the buffer
-    fn add(&mut self, start: &Point, end: &Point, motion: &Motion) {
-        let vertex = match motion {
-            Motion::Rapid => Vertex::rapid_move(start, end),
-            _ => Vertex::feed_move(start, end),
-        };
+    // add new vertices of a move to the buffer
+    fn add(&mut self, mut vertices: Vertices) {
+        let first = match &mut vertices {
+            Vertices::Linear(vs) => vs.next(),
+            Vertices::Arc(vs) => vs.next(),
+        }
+        .expect("At least one point is guarranteed, which would be the end point.");
 
         // since shaders are type agnostic and just see raw bytes,
         // therefore we can only add raw byte slices to the buffer of our types
         self.queue.write_buffer(
             &self.vertex_buffer,
             self.offset,
-            bytemuck::cast_slice(&[vertex]),
+            bytemuck::cast_slice(&[first]),
         );
 
         // bytemuck cannot infer target type, therefore provide u8
-        self.offset += bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64;
+        self.offset += bytemuck::cast_slice::<Vertex, u8>(&[first]).len() as u64;
         self.vertex_count += 1;
-        self.current_vertex = Some(vertex);
+        self.current_vertices = Some(vertices);
     }
 
-    // updates last vertex and does not add anything to the buffer
-    fn update(&mut self, end: &Point) {
-        let mut vertex = self
-            .current_vertex
-            .expect("Update must only be called after adding a vertex.");
+    fn update(&mut self) -> bool {
+        // if None, signal has already been sent to retrieve a command from previous block
+        // exhaustion
+        if let Some(vertices) = self.current_vertices.as_mut() {
+            match vertices {
+                Vertices::Linear(vs) => match vs.next() {
+                    Some(vertex) => {
+                        self.update_linear(vertex);
+                        false
+                    }
+                    None => {
+                        self.current_vertices = None;
+                        true
+                    }
+                },
+                Vertices::Arc(vs) => match vs.next() {
+                    Some(vertex) => {
+                        self.update_arc(vertex);
+                        false
+                    }
+                    None => {
+                        self.current_vertices = None;
+                        true
+                    }
+                },
+            }
+        } else {
+            false
+        }
+    }
 
-        vertex.end = [end.x() as f32, end.y() as f32, end.z() as f32];
-
-        // update the last vertex
+    // updates last vertex without adding anything to the buffer
+    fn update_linear(&mut self, vertex: Vertex) {
         self.queue.write_buffer(
             &self.vertex_buffer,
             self.offset - bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64,
@@ -273,8 +298,20 @@ impl Graphics {
         );
     }
 
+    // updates last arc move by extending it and adding a new vertex segment
+    fn update_arc(&mut self, vertex: Vertex) {
+        self.queue.write_buffer(
+            &self.vertex_buffer,
+            self.offset,
+            bytemuck::cast_slice(&[vertex]),
+        );
+
+        self.offset += bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64;
+        self.vertex_count += 1;
+    }
+
     // rewrites updated fixed vertices to the vertex buffer
-    fn update_fixed(&mut self, max_travels: &Point, fixed_config: Fixed_Vertex_Config) {
+    fn update_fixed(&mut self, max_travels: &Point, fixed_config: FixedVertexConfig) {
         let vertices = Vertex::fixed(max_travels, fixed_config);
 
         // update the fixed vertices
@@ -286,7 +323,7 @@ impl Graphics {
     fn clear(&mut self) {
         self.vertex_count = self.fixed_vertex_count;
         self.offset = self.fixed_offset;
-        self.current_vertex = None;
+        self.current_vertices = None;
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
@@ -384,15 +421,10 @@ pub struct Gui {
     signal: Sender<Signal>,
     max_travels: Point,
     last_command: Option<Command>,
-    // segments of current line vertex LEFT TO RENDER
-    current_points: Option<Box<dyn Iterator<Item = Point>>>,
-    /// have to keep track of motion type, as each [`BlockSummary`] does not contain a
-    /// [`MotionSummary`].
-    motion: Motion,
     graphics: Option<Graphics>,
     // for passing render errors out of the loop
     error: Option<anyhow::Error>,
-    fixed_config: Fixed_Vertex_Config,
+    fixed_config: FixedVertexConfig,
     event_loop: Option<EventLoop<Command>>,
 }
 
@@ -405,11 +437,9 @@ impl Gui {
             signal,
             max_travels,
             last_command: None,
-            current_points: None,
-            motion: Motion::Rapid,
             graphics: None,
             error: None,
-            fixed_config: Fixed_Vertex_Config::default(),
+            fixed_config: FixedVertexConfig::default(),
             event_loop: Some(event_loop),
         }
     }
@@ -485,26 +515,14 @@ impl ApplicationHandler<Command> for Gui {
             WindowEvent::Resized(size) => graphics.resize(size),
             WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                let mut redraw = false;
+                let proceed = graphics.update();
 
-                // if None, signal has already been sent to retrieve a command from previous block
-                // exhaustion
-                if let Some(points) = self.current_points.as_mut() {
-                    match points.next() {
-                        // update current vertex
-                        Some(point) => {
-                            graphics.update(&point);
-                            redraw = true;
-                        }
-                        None => {
-                            self.signal.send(Signal::Proceed).unwrap();
-                            self.current_points = None;
-                        }
-                    }
+                if proceed {
+                    self.signal.send(Signal::Proceed).unwrap();
                 };
 
                 match graphics.render() {
-                    Ok(_) if redraw => {
+                    Ok(_) if !proceed => {
                         graphics.window.request_redraw();
                     }
                     Ok(_) => (),
@@ -522,33 +540,16 @@ impl ApplicationHandler<Command> for Gui {
         let graphics = self.graphics.as_mut().expect("App has been started");
 
         match &event {
-            Command::Render(view, block) => {
-                if block.new_pos == block.org_pos {
-                    // do not use this block and request another
-                    return self.signal.send(Signal::Proceed).unwrap();
-                }
+            Command::Render(summary) => {
+                let vertices = Vertices::new(*summary);
 
-                if let Some(motion) = &block.motion {
-                    self.motion = match motion {
-                        MotionSummary::Rapid => Motion::Rapid,
-                        MotionSummary::Feed => Motion::Feed,
-                        MotionSummary::Arc { dir, .. } => Motion::Arc(*dir),
-                    };
-                };
-
-                graphics.set_view(*view);
-
-                let mut points = points(block.org_pos, block.new_pos); // output does not include start pos
-                graphics.add(
-                    &block.org_pos,
-                    &points
-                        .next()
-                        .expect("At least one point is guarranteed, which would be the end point."),
-                    &self.motion,
-                );
+                graphics.add(vertices);
                 graphics.window.request_redraw();
+            }
 
-                self.current_points = Some(points);
+            Command::SetView(view) => {
+                graphics.set_view(*view);
+                graphics.window.request_redraw();
             }
 
             Command::ToggleMachineBoundary => {
@@ -570,7 +571,6 @@ impl ApplicationHandler<Command> for Gui {
             }
 
             Command::Clear => {
-                self.current_points = None;
                 graphics.clear();
                 graphics.window.request_redraw();
             }

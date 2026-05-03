@@ -12,7 +12,9 @@ pub mod source;
 pub mod tui;
 mod ui;
 
-use crate::{app::View, gui::Gui, interpreter::BlockSummary, parser::Point, tui::Tui};
+use crate::{
+    app::View, gui::Gui, interpreter::BlockSummary, machine::MotionSummary, parser::Point, tui::Tui,
+};
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
@@ -22,7 +24,8 @@ const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, -600.0);
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
 pub enum Command {
-    Render(View, BlockSummary),
+    Render(MotionSummary),
+    SetView(View),
     ToggleMachineBoundary,
     ToggleGrid,
     ToggleOrigin,

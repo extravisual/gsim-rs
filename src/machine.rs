@@ -60,11 +60,19 @@ pub enum Motion {
 }
 
 /// Represents what state changes were made on a call to move the machine.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MotionSummary {
-    Rapid,
-    Feed,
+    Rapid {
+        org_pos: Point,
+        new_pos: Point,
+    },
+    Feed {
+        org_pos: Point,
+        new_pos: Point,
+    },
     Arc {
+        org_pos: Point,
+        new_pos: Point,
         dir: CircularDirection,
         center: PlanarPoint,
         radius: Float,
@@ -597,6 +605,7 @@ impl Machine {
         mut pos: PartialPoint,
     ) -> Result<MotionSummary, MachineError> {
         self.to_machine_units(&mut pos);
+        let org_pos = self.pos().clone();
 
         let new_pos = Point::new(
             pos.x().unwrap_or(self.pos().x()),
@@ -605,7 +614,7 @@ impl Machine {
         );
 
         self.set_pos(new_pos)?;
-        Ok(MotionSummary::Rapid)
+        Ok(MotionSummary::Rapid { org_pos, new_pos })
     }
 
     /// Moves machine using [`motion`](Machine::motion) type,
@@ -629,11 +638,13 @@ impl Machine {
             self.set_feed(f); // takes care of any unit conversion
         }
 
+        let org_pos = self.pos().clone();
+
         match self.motion {
             Motion::Rapid => {
                 let new_pos = self.new_pos(pos);
                 self.set_pos(new_pos)?;
-                Ok(MotionSummary::Rapid)
+                Ok(MotionSummary::Rapid { org_pos, new_pos })
             }
 
             Motion::Feed => {
@@ -642,7 +653,7 @@ impl Machine {
                         // move only when feed is detected.
                         let new_pos = self.new_pos(pos);
                         self.set_pos(new_pos)?;
-                        Ok(MotionSummary::Feed)
+                        Ok(MotionSummary::Feed { org_pos, new_pos })
                     }
                     None => Err(MachineError::NoFeed),
                 }
@@ -659,7 +670,7 @@ impl Machine {
                     return Err(MachineError::NoCircleMethod);
                 };
 
-                let start_pos = self.pos();
+                let start_pos = &org_pos;
                 // retain None variants as start_pos
                 let end_pos = self.new_pos(pos);
 
@@ -705,6 +716,8 @@ impl Machine {
                 self.set_pos(end_pos)?;
 
                 Ok(MotionSummary::Arc {
+                    org_pos,
+                    new_pos: end_pos,
                     dir,
                     center,
                     radius,
@@ -819,7 +832,7 @@ impl Machine {
 }
 
 /// Represents a **2D Point** on a specific **Plane**.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlanarPoint(Plane, Float, Float);
 
 impl PlanarPoint {
