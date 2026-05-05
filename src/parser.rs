@@ -19,7 +19,10 @@ use std::{
     ops::{Add, Sub},
 };
 
-use crate::describe::{Describe, Description};
+use crate::{
+    describe::{Describe, Description},
+    machine::PlanarPoint,
+};
 
 use super::{
     error::{RED, RESET},
@@ -141,6 +144,14 @@ impl Point {
 
     pub fn div_float(&self, divisor: f64) -> Self {
         Self::new(self.x() / divisor, self.y() / divisor, self.z() / divisor)
+    }
+
+    pub fn planar(&self, plane: Plane) -> PlanarPoint {
+        match &plane {
+            Plane::XY => PlanarPoint::new(plane, self.x(), self.y()),
+            Plane::XZ => PlanarPoint::new(plane, self.x(), self.z()),
+            Plane::YZ => PlanarPoint::new(plane, self.y(), self.z()),
+        }
     }
 }
 

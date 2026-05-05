@@ -4,8 +4,8 @@ use winit::dpi::PhysicalSize;
 
 use crate::{
     app::View,
-    machine::{CircularDirection, MotionSummary, PlanarPoint},
-    parser::Point,
+    machine::{Arc, CircularDirection, Line, MotionSummary},
+    parser::{Plane, Point},
 };
 
 const SHOW_MACHINE_BOUNDARY: bool = false;
@@ -27,7 +27,7 @@ const X_AXIS_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const Y_AXIS_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
 const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
 // units travelled per frame
-const SPEED: f64 = 50.0;
+const SPEED: f64 = 5.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -444,25 +444,18 @@ pub enum Vertices {
 impl Vertices {
     pub fn new(summary: MotionSummary) -> Self {
         match summary {
-            MotionSummary::Rapid { org_pos, new_pos } => {
-                Self::linear_points(org_pos, new_pos, Vertex::rapid_move)
-            }
-            MotionSummary::Feed { org_pos, new_pos } => {
-                Self::linear_points(org_pos, new_pos, Vertex::feed_move)
-            }
-            MotionSummary::Arc {
-                org_pos,
-                new_pos,
-                dir,
-                center,
-                ..
-            } => Self::arc_points(org_pos, new_pos, dir, center),
+            MotionSummary::Rapid(line) => Self::linear_points(line, Vertex::rapid_move),
+            MotionSummary::Feed(line) => Self::linear_points(line, Vertex::feed_move),
+            MotionSummary::Arc(arc) => Self::arc_points(arc),
         }
     }
 
     // takes in a function pointer that provides the vertex
-    fn linear_points(start: Point, end: Point, vertex: fn(Point, Point) -> Vertex) -> Self {
-        // relative distance of end point from start
+    fn linear_points(line: Line, vertex: fn(Point, Point) -> Vertex) -> Self {
+        let start = line.start;
+        let end = line.end;
+
+        // direction from start to end
         let dir = end - start;
         // distance between start and end points
         let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
@@ -495,7 +488,59 @@ impl Vertices {
         })))
     }
 
-    fn arc_points(start: Point, end: Point, dir: CircularDirection, center: PlanarPoint) -> Self {
-        todo!()
+    // always drawn in feed
+    fn arc_points(arc: Arc) -> Self {
+        let start = arc.start;
+        let end = arc.end;
+        let center = arc.center;
+        let dist = arc.arc_len;
+        let cir_dir = arc.dir;
+
+        if dist <= SPEED {
+            return Self::Arc(Box::new([Vertex::feed_move(start, end)].into_iter()));
+        }
+
+        let mut current = start;
+
+        Self::Arc(Box::new(std::iter::from_fn(move || {
+            if current == end {
+                return None;
+            }
+
+            // direction from current point to end
+            let mut dir = end - current;
+
+            dir = match (&center.plane(), cir_dir) {
+                (Plane::XY, CircularDirection::Clockwise) => Point::new(dir.y(), -dir.x(), dir.z()),
+                (Plane::XY, CircularDirection::CounterClockwise) => {
+                    Point::new(-dir.y(), dir.x(), dir.z())
+                }
+                (Plane::XZ, CircularDirection::Clockwise) => Point::new(dir.z(), dir.y(), -dir.x()),
+                (Plane::XZ, CircularDirection::CounterClockwise) => {
+                    Point::new(-dir.z(), dir.y(), dir.x())
+                }
+                (Plane::YZ, CircularDirection::Clockwise) => Point::new(dir.x(), dir.z(), -dir.y()),
+                (Plane::YZ, CircularDirection::CounterClockwise) => {
+                    Point::new(dir.x(), -dir.z(), dir.y())
+                }
+            };
+
+            // amount to move each axis by to get next point
+            let delta = dir.mul_float(SPEED).div_float(dist);
+
+            let mut next = current + delta;
+            let remaining = end - next;
+
+            // use dot product to see if the next point is between start and end
+            if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
+                next = end;
+            }
+
+            let ret = Some(Vertex::feed_move(current, next));
+
+            current = next;
+
+            ret
+        })))
     }
 }

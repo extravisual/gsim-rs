@@ -9,7 +9,8 @@ use ratatui::{
 use crate::{
     app::{App, Interrupt, View},
     describe::Describe,
-    machine::{CircularDirection, FeedMode, Motion, Plane, Positioning, Unit},
+    machine::{CircularDirection, FeedMode, Motion, Positioning, Unit},
+    parser::Plane,
 };
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`

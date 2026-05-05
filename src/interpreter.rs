@@ -11,9 +11,9 @@ use crate::{
     lexer::Prefix,
     machine::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
-        Plane, Positioning, ReturnLevel, Unit,
+        Positioning, ReturnLevel, Unit,
     },
-    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Point},
+    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Plane, Point},
 };
 
 /// Represents a consumed [`CodeBlock`].

@@ -170,8 +170,7 @@ impl App {
             };
 
             if pending && !self.single && self.interrupt.is_none() && self.error.is_none() {
-                self.execute();
-                pending = false;
+                pending = self.execute();
             } else if self.error.is_some() {
                 // if error, then poll for enter event or continue and check if the main thread is
                 // still running
@@ -211,16 +210,14 @@ impl App {
                         KeyCode::Char('o') => self.proxy.send_event(Command::ToggleOrigin).unwrap(),
 
                         KeyCode::Char('n') if pending && self.interrupt.is_none() => {
-                            self.execute();
-                            pending = false;
+                            pending = self.execute();
                         }
 
                         KeyCode::Enter => match self.interrupt {
                             Some(Interrupt::End) => self.reload(),
                             Some(Interrupt::Start) => {
                                 self.interrupt = None;
-                                self.execute();
-                                pending = false;
+                                pending = self.execute();
                             }
                             Some(_) => self.interrupt = None,
                             None => {}
@@ -242,9 +239,10 @@ impl App {
     }
 
     /// Execute a single block from the Parser.
-    fn execute(&mut self) {
+    /// Returns true when no motion was detected, requesting parsing of another block
+    fn execute(&mut self) -> bool {
         if self.interrupt.is_some() {
-            return;
+            return false;
         }
 
         // branch off on if the results are already stored
@@ -265,15 +263,18 @@ impl App {
                 Ok(res) => res,
                 Err(err) => {
                     self.error = Some(err.into());
-                    return;
+                    return false;
                 }
             },
         };
 
         match block {
             Some(summary) => {
-                if let Some(motion) = &summary.motion {
+                let proceed = if let Some(motion) = &summary.motion {
                     self.proxy.send_event(Command::Render(*motion)).unwrap();
+                    false
+                } else {
+                    true
                 };
 
                 // this was a new block
@@ -282,11 +283,14 @@ impl App {
                 }
 
                 self.current += 1;
+
+                proceed
             }
 
             None => {
                 self.total = Some(self.current);
                 self.interrupt = Some(Interrupt::End);
+                false
             }
         }
     }
