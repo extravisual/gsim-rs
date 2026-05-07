@@ -4,7 +4,7 @@ use winit::dpi::PhysicalSize;
 
 use crate::{
     app::View,
-    machine::{Arc, CircularDirection, Line, MotionSummary},
+    machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
     parser::{Plane, Point},
 };
 
@@ -27,7 +27,7 @@ const X_AXIS_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const Y_AXIS_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
 const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
 // units travelled per frame
-const SPEED: f64 = 5.0;
+const SPEED: f64 = 50.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -489,56 +489,76 @@ impl Vertices {
     }
 
     // always drawn in feed
+    // reference: https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/
     fn arc_points(arc: Arc) -> Self {
-        let start = arc.start;
-        let end = arc.end;
-        let center = arc.center;
-        let dist = arc.arc_len;
-        let cir_dir = arc.dir;
+        let plane = arc.center.plane();
+        let start = arc.start.planar(plane);
 
-        if dist <= SPEED {
-            return Self::Arc(Box::new([Vertex::feed_move(start, end)].into_iter()));
+        let center = arc.center;
+        let radius = arc.radius;
+        let sweep = arc.sweep;
+
+        eprintln!("sweep: {sweep:?}");
+
+        // angular speed
+        let step = SPEED / radius;
+        eprintln!("step: {step:?}");
+        if sweep <= step {
+            return Self::Arc(Box::new(
+                [Vertex::feed_move(arc.start, arc.end)].into_iter(),
+            ));
         }
 
-        let mut current = start;
+        // start point relative to arc center
+        let rel_start = start - center;
+
+        // angle with positive major axis of the plane in radians
+        let mut current_sweep = (rel_start.first() / radius).clamp(-1.0, 1.0).acos();
+        eprintln!("current_sweep: {current_sweep:?}");
+        let mut current_pos = arc.start;
+        eprintln!("current_pos: {current_pos:?}");
+        // total sweep from positive major axis to get to end point
+        let end_sweep = current_sweep + sweep;
+        eprintln!("end_sweep: {end_sweep:?}");
 
         Self::Arc(Box::new(std::iter::from_fn(move || {
-            if current == end {
+            // both are exact same on bit level
+            if current_sweep == end_sweep {
                 return None;
             }
 
-            // direction from current point to end
-            let mut dir = end - current;
-
-            dir = match (&center.plane(), cir_dir) {
-                (Plane::XY, CircularDirection::Clockwise) => Point::new(dir.y(), -dir.x(), dir.z()),
-                (Plane::XY, CircularDirection::CounterClockwise) => {
-                    Point::new(-dir.y(), dir.x(), dir.z())
-                }
-                (Plane::XZ, CircularDirection::Clockwise) => Point::new(dir.z(), dir.y(), -dir.x()),
-                (Plane::XZ, CircularDirection::CounterClockwise) => {
-                    Point::new(-dir.z(), dir.y(), dir.x())
-                }
-                (Plane::YZ, CircularDirection::Clockwise) => Point::new(dir.x(), dir.z(), -dir.y()),
-                (Plane::YZ, CircularDirection::CounterClockwise) => {
-                    Point::new(dir.x(), -dir.z(), dir.y())
-                }
+            current_sweep = if current_sweep + step > end_sweep {
+                end_sweep
+            } else {
+                current_sweep + step
             };
 
-            // amount to move each axis by to get next point
-            let delta = dir.mul_float(SPEED).div_float(dist);
+            eprintln!("new_sweep: {current_sweep:?}");
 
-            let mut next = current + delta;
-            let remaining = end - next;
+            // relative to center
+            let new_pos = match plane {
+                Plane::XY => Point::new(
+                    arc.center.first() + radius * current_sweep.cos(),
+                    arc.center.second() + radius * current_sweep.sin(),
+                    arc.start.z(),
+                ),
+                Plane::XZ => Point::new(
+                    arc.center.first() + radius * current_sweep.cos(),
+                    arc.start.y(),
+                    arc.center.second() + radius * current_sweep.sin(),
+                ),
+                Plane::YZ => Point::new(
+                    arc.start.x(),
+                    arc.center.first() + radius * current_sweep.cos(),
+                    arc.center.second() + radius * current_sweep.sin(),
+                ),
+            };
 
-            // use dot product to see if the next point is between start and end
-            if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
-                next = end;
-            }
+            eprintln!("new_pos: {new_pos:?}");
 
-            let ret = Some(Vertex::feed_move(current, next));
+            let ret = Some(Vertex::feed_move(current_pos, new_pos));
 
-            current = next;
+            current_pos = new_pos;
 
             ret
         })))

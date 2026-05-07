@@ -8,7 +8,7 @@
 use std::{
     f64::consts::PI,
     fmt::Display,
-    ops::{Neg, Sub},
+    ops::{Add, Neg, Sub},
 };
 
 use crate::describe::{Describe, Description};
@@ -92,8 +92,9 @@ pub struct Arc {
     pub dir: CircularDirection,
     pub center: PlanarPoint,
     pub radius: Float,
+    // angle made by arc in radians
+    pub sweep: Float,
     pub arc_type: ArcType,
-    pub arc_len: Float,
 }
 
 // method values must be converted to machine units before passing it into this function
@@ -157,7 +158,7 @@ impl Arc {
                 // direction towards start pos from center
                 let to_start = start_planar - center;
                 // direction towards end pos from center
-                let to_end = start_planar - center;
+                let to_end = end_planar - center;
 
                 let cross = to_start.first() * to_end.second() - to_start.second() * to_end.first();
                 let dot = to_start.first() * to_end.first() + to_start.second() * to_end.second();
@@ -194,8 +195,8 @@ impl Arc {
                         dir,
                         center,
                         radius,
+                        sweep: Arc::sweep(to_start, to_end, arc_type, radius),
                         arc_type,
-                        arc_len: Arc::len(to_start, to_end, arc_type, radius),
                     })
                 }
             }
@@ -281,8 +282,8 @@ impl Arc {
                     dir,
                     center,
                     radius,
+                    sweep: Arc::sweep(to_start, to_end, arc_type, radius),
                     arc_type,
-                    arc_len: Arc::len(to_start, to_end, arc_type, radius),
                 })
             }
         }
@@ -290,9 +291,13 @@ impl Arc {
 
     // calculates length of an arc
     // takes start and end points relative to the center of arc
-    fn len(to_start: PlanarPoint, to_end: PlanarPoint, arc_type: ArcType, radius: Float) -> Float {
+    fn sweep(
+        to_start: PlanarPoint,
+        to_end: PlanarPoint,
+        arc_type: ArcType,
+        radius: Float,
+    ) -> Float {
         assert_eq!(to_start.plane(), to_end.plane());
-
         // https://stackoverflow.com/questions/2994669/how-do-i-calculate-arc-angle-between-two-points-on-a-circle
         // this formula always gets us the sweep by the minor arc
         let minor_sweep = ((to_start.first() * to_end.first()
@@ -302,14 +307,10 @@ impl Arc {
         .acos();
 
         // total sweep can only be 2pie, 360 degs
-        let sweep = match arc_type {
+        match arc_type {
             ArcType::Major => 2.0 * PI - minor_sweep,
             ArcType::Minor => minor_sweep,
-        };
-
-        // using the perimeter formula
-        // in that we use 2pie*rad, but since this is an arc we use the sweep
-        sweep * radius
+        }
     }
 }
 
@@ -1097,6 +1098,14 @@ impl Sub for PlanarPoint {
 
     fn sub(self, rhs: Self) -> Self::Output {
         Self::new(self.0, self.1 - rhs.1, self.2 - rhs.2)
+    }
+}
+
+impl Add for PlanarPoint {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.0, self.1 + rhs.1, self.2 + rhs.2)
     }
 }
 
