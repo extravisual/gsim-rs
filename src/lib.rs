@@ -12,9 +12,7 @@ pub mod source;
 pub mod tui;
 mod ui;
 
-use crate::{
-    app::View, gui::Gui, interpreter::BlockSummary, machine::MotionSummary, parser::Point, tui::Tui,
-};
+use crate::{app::View, gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.

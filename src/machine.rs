@@ -92,7 +92,8 @@ pub struct Arc {
     pub dir: CircularDirection,
     pub center: PlanarPoint,
     pub radius: Float,
-    // angle made by arc in radians
+    // signed angle made by arc in radians
+    // positive is counterclockwise
     pub sweep: Float,
     pub arc_type: ArcType,
 }
@@ -195,7 +196,7 @@ impl Arc {
                         dir,
                         center,
                         radius,
-                        sweep: Arc::sweep(to_start, to_end, arc_type, radius),
+                        sweep: Arc::sweep(to_start, to_end, arc_type, dir, radius),
                         arc_type,
                     })
                 }
@@ -282,7 +283,7 @@ impl Arc {
                     dir,
                     center,
                     radius,
-                    sweep: Arc::sweep(to_start, to_end, arc_type, radius),
+                    sweep: Arc::sweep(to_start, to_end, arc_type, dir, radius),
                     arc_type,
                 })
             }
@@ -295,6 +296,7 @@ impl Arc {
         to_start: PlanarPoint,
         to_end: PlanarPoint,
         arc_type: ArcType,
+        dir: CircularDirection,
         radius: Float,
     ) -> Float {
         assert_eq!(to_start.plane(), to_end.plane());
@@ -307,9 +309,11 @@ impl Arc {
         .acos();
 
         // total sweep can only be 2pie, 360 degs
-        match arc_type {
-            ArcType::Major => 2.0 * PI - minor_sweep,
-            ArcType::Minor => minor_sweep,
+        match (arc_type, dir) {
+            (ArcType::Major, CircularDirection::Clockwise) => 0.0 - (2.0 * PI - minor_sweep),
+            (ArcType::Major, CircularDirection::CounterClockwise) => 2.0 * PI - minor_sweep,
+            (ArcType::Minor, CircularDirection::Clockwise) => 0.0 - minor_sweep,
+            (ArcType::Minor, CircularDirection::CounterClockwise) => minor_sweep,
         }
     }
 }
