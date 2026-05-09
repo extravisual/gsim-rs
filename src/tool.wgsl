@@ -2,6 +2,9 @@ struct Uniforms {
     window_size: vec2<f32>,
     padding: vec2<f32>,
     max_travels: vec4<f32>,
+    tool_color: vec4<f32>,
+    tool_size: f32,
+    tool_len: f32,
     scale: f32,
     view: u32,
 };
@@ -16,12 +19,9 @@ struct VertexInput {
 struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) color: vec4<f32>,
 };
 
-const color: vec3<f32> = vec3<f32>(0.25, 0.25, 0.25);
-const tool_len: f32 = 250.0;
-const tool_size: f32 = 25.0;
 const SQRT_2: f32 = 1.41421356;
 const SQRT_3: f32 = 1.73205081;
 
@@ -38,7 +38,7 @@ fn clipped() -> VertexOutput {
     var clipped: VertexOutput;
 
     clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.1);
-    clipped.color = vec3<f32>(0.0, 0.0, 0.0);
+    clipped.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
 
     return clipped;
 }
@@ -65,6 +65,9 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     // angle in radians
     let angle = radians(f32(triangle % 360));
     let angle_next = radians(f32(triangle % 360) + 1.0);
+
+    let tool_size = uniforms.tool_size;
+    let tool_len = uniforms.tool_len;
 
     var position: vec3<f32> = in.pos;
 
@@ -203,12 +206,12 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     out.clip_position = vec4<f32>(clip_position, 0.1, 1.0);
-    out.color = color;
+    out.color = uniforms.tool_color;
 
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    return in.color;
 }

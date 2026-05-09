@@ -26,6 +26,8 @@ const GRID_COLOR: [f32; 3] = [0.1, 0.1, 0.1];
 const X_AXIS_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const Y_AXIS_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
 const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
+
+const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 // units travelled per frame
 const SPEED: f64 = 5.0;
 
@@ -273,10 +275,15 @@ pub struct Uniforms {
     padding: [f32; 2],
     // signed max travels for each axis, starting at 0 for each axis
     max_travels: [f32; 4],
+    // color of the tool
+    tool_color: [f32; 4],
+    // diameter of the tool
+    tool_size: f32,
+    // length of the tool
+    tool_len: f32,
     // absolute scale, to convert machine unit to pixels
     scale: f32,
     view: View,
-    _pad: [f32; 2],
 }
 
 impl Uniforms {
@@ -296,10 +303,12 @@ impl Uniforms {
         Self {
             window_size,
             padding,
-            view: DEFAULT_VIEW,
             max_travels,
+            tool_color: TOOL_COLOR,
+            tool_size: max_travels[0].abs() / 40.0,
+            tool_len: max_travels[2].abs() / 2.0,
+            view: DEFAULT_VIEW,
             scale,
-            _pad: [0.0, 0.0],
         }
     }
 
