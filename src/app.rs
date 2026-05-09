@@ -19,7 +19,7 @@ use crate::{
     interpreter::{BlockSummary, Interpreter},
     lexer::Lexer,
     machine::{Machine, Unit},
-    parser::{Parser, Point},
+    parser::{MCode, Parser, Point},
     source::Source,
     ui::ui,
 };
@@ -83,7 +83,7 @@ pub struct App {
     pub interpreter: Interpreter,
     /// Index of current block being executed for preview.
     pub current: usize,
-    /// Total number of summaries stored before [`MCode::Stop`](crate::parser::MCode::Stop) block.
+    /// Total number of summaries stored till [`MCode::Stop`](crate::parser::MCode::Stop) block.
     /// This is stored on the first pass, so that next passes can know when to issue
     /// [`Interrupt::End`].
     pub total: Option<usize>,
@@ -275,6 +275,12 @@ impl App {
                 let proceed = if let Some(motion) = &summary.motion {
                     self.proxy.send_event(Command::Render(*motion)).unwrap();
                     false
+                } else if let Some(mcode) = &summary.mcode
+                    && *mcode == MCode::End.to_string()
+                {
+                    // check the mcode for M30
+                    self.interrupt = Some(Interrupt::End);
+                    false
                 } else {
                     true
                 };
@@ -290,6 +296,7 @@ impl App {
             }
 
             None => {
+                // end of blocks
                 self.total = Some(self.current);
                 self.interrupt = Some(Interrupt::End);
                 false

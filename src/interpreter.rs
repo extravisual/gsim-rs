@@ -13,10 +13,10 @@ use crate::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
         Positioning, ReturnLevel, Unit,
     },
-    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Plane, Point},
+    parser::{Code, Codes, GCode, MCode, Parser, ParserError, Plane, Point},
 };
 
-/// Represents a consumed [`CodeBlock`].
+/// Represents a consumed [`CodeBlock`](crate::parser::CodeBlock).
 /// Contains all the information required by the [`App`](crate::app::App) to render the new [`Machine`] state.
 #[derive(Debug, Clone)]
 pub struct BlockSummary {
@@ -50,7 +50,7 @@ impl Interpreter {
     /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
     ///
     /// Returns the summary of changes during execution as [`BlockSummary`],
-    /// or [`None`] on exhaustion of [`CodeBlock`]s or on [`MCode::End`].
+    /// or [`None`] on exhaustion of [`CodeBlock`](crate::parser::CodeBlock)s.
     ///
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
     pub fn execute(&mut self) -> Result<Option<BlockSummary>, InterpreterError> {
@@ -161,10 +161,7 @@ impl Interpreter {
 
                 MCode::CoolantOff => machine.set_coolant(false),
 
-                MCode::End => {
-                    machine.reset();
-                    return Ok(None);
-                }
+                MCode::End => machine.reset(),
             }
         }
 

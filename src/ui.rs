@@ -142,10 +142,10 @@ fn get_keys(app: &App) -> Paragraph<'_> {
 fn get_preview(app: &App) -> Paragraph<'_> {
     let mut lines = vec![];
 
-    let mut current = if app.current > 0 { app.current - 1 } else { 0 };
+    let mut current = app.current.saturating_sub(2);
 
     while let Some(line) = app.interpreter.get_line(current) {
-        if current == app.current {
+        if current == app.current.saturating_sub(1) {
             lines.push(TextLine::styled(
                 line,
                 Style::default().bg(Color::White).fg(Color::Black),
