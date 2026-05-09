@@ -209,6 +209,8 @@ impl App {
 
                         KeyCode::Char('o') => self.proxy.send_event(Command::ToggleOrigin).unwrap(),
 
+                        KeyCode::Char('t') => self.proxy.send_event(Command::ToggleTool).unwrap(),
+
                         KeyCode::Char('n') if pending && self.interrupt.is_none() => {
                             pending = self.execute();
                         }

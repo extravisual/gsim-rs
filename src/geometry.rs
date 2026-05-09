@@ -330,6 +330,14 @@ impl Uniforms {
             height: self.window_size[1] as u32,
         });
     }
+
+    pub fn toggle_tool(&mut self) {
+        self.tool_size = if self.tool_size > 1e-10 {
+            0.0
+        } else {
+            self.max_travels[0].abs() / 40.0
+        }
+    }
 }
 
 // returns rect dims to fit inside the window, but in machine units

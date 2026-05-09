@@ -115,7 +115,9 @@ fn get_keys(app: &App) -> Paragraph<'_> {
         Span::styled("o", Style::default().fg(Color::Yellow)),
         ": toggle origin / ".into(),
         Span::styled("b", Style::default().fg(Color::Yellow)),
-        ": toggle machine boundary".into(),
+        ": toggle machine boundary / ".into(),
+        Span::styled("t", Style::default().fg(Color::Yellow)),
+        ": toggle tool".into(),
     ];
 
     if app.single && app.interrupt.is_none() {

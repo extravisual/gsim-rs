@@ -500,6 +500,16 @@ impl Graphics {
             bytemuck::cast_slice(&[self.uniforms]),
         );
     }
+
+    fn toggle_tool(&mut self) {
+        self.uniforms.toggle_tool();
+
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
+    }
 }
 
 pub struct Gui {
@@ -652,6 +662,11 @@ impl ApplicationHandler<Command> for Gui {
             Command::ToggleOrigin => {
                 self.fixed_config.toggle_origin();
                 graphics.update_fixed(&self.max_travels, self.fixed_config);
+                graphics.window.request_redraw();
+            }
+
+            Command::ToggleTool => {
+                graphics.toggle_tool();
                 graphics.window.request_redraw();
             }
 

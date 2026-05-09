@@ -28,6 +28,7 @@ pub enum Command {
     ToggleMachineBoundary,
     ToggleGrid,
     ToggleOrigin,
+    ToggleTool,
     Clear,
     Stop(Option<anyhow::Error>),
 }
