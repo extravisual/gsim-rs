@@ -43,7 +43,7 @@ impl Vertex {
         // 3d start and end points
         // with opaque colors
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
             // share the same buffer entry across a number of invocations
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
@@ -503,12 +503,12 @@ impl Vertices {
             CircularDirection::Clockwise => 0.0 - SPEED / radius,
             CircularDirection::CounterClockwise => SPEED / radius,
         };
-        let steps_count = (sweep / step_angular).ceil();
+        let steps_count = (sweep / step_angular).ceil().abs();
         let step_linear = match plane {
             Plane::XY => arc.end.z() - arc.start.z(),
             Plane::XZ => arc.end.y() - arc.start.y(),
             Plane::YZ => arc.end.x() - arc.start.x(),
-        } / steps_count.abs();
+        } / steps_count;
 
         if sweep.abs() <= step_angular.abs() {
             return Self::Arc(Box::new(

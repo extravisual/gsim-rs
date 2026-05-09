@@ -15,6 +15,7 @@ use crate::{
     app::View,
     geometry::{FixedVertexConfig, Uniforms, Vertex, Vertices},
     parser::Point,
+    tool::Tool,
 };
 
 const MAX_VERTICES: u64 = 100_000;
@@ -26,6 +27,8 @@ pub struct Graphics {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    tool_buffer: wgpu::Buffer,
+    tool_pipeline: wgpu::RenderPipeline,
     // number of vertices that make up the grid/axis/boundary
     fixed_vertex_count: u32,
     // total number of vertices, including fixed ones
@@ -195,6 +198,63 @@ impl Graphics {
         });
 
         queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+
+        // tool stuff
+        // do not present tool yet
+        let shader = device.create_shader_module(wgpu::include_wgsl!("tool.wgsl"));
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Tool"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+
+        let tool_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Tool"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[Tool::desc()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let tool_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Tool"),
+            size: std::mem::size_of::<Tool>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let tool = Tool::at_pos([0.0, 0.0, 0.0]);
+        queue.write_buffer(&tool_buffer, 0, bytemuck::cast_slice(&[tool]));
         queue.submit([]);
 
         Ok(Self {
@@ -204,7 +264,9 @@ impl Graphics {
             config,
             window,
             pipeline,
+            tool_pipeline,
             vertex_buffer,
+            tool_buffer,
             fixed_vertex_count: vertices.len() as u32,
             vertex_count: vertices.len() as u32,
             fixed_offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
@@ -256,6 +318,12 @@ impl Graphics {
         self.offset += bytemuck::cast_slice::<Vertex, u8>(&[first]).len() as u64;
         self.vertex_count += 1;
         self.current_vertices = Some(vertices);
+
+        self.queue.write_buffer(
+            &self.tool_buffer,
+            0,
+            bytemuck::cast_slice(&[Tool::at_vertex_end(first)]),
+        );
     }
 
     fn update(&mut self) -> bool {
@@ -296,6 +364,12 @@ impl Graphics {
             self.offset - bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64,
             bytemuck::cast_slice(&[vertex]),
         );
+
+        self.queue.write_buffer(
+            &self.tool_buffer,
+            0,
+            bytemuck::cast_slice(&[Tool::at_vertex_end(vertex)]),
+        );
     }
 
     // updates last arc move by extending it and adding a new vertex segment
@@ -308,6 +382,12 @@ impl Graphics {
 
         self.offset += bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64;
         self.vertex_count += 1;
+
+        self.queue.write_buffer(
+            &self.tool_buffer,
+            0,
+            bytemuck::cast_slice(&[Tool::at_vertex_end(vertex)]),
+        );
     }
 
     // rewrites updated fixed vertices to the vertex buffer
@@ -389,10 +469,15 @@ impl Graphics {
             multiview_mask: None,
         });
 
-        render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+        render_pass.set_pipeline(&self.pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.draw(0..6, 0..self.vertex_count);
+
+        render_pass.set_pipeline(&self.tool_pipeline);
+        render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
+        render_pass.draw(0..4320, 0..1);
 
         drop(render_pass);
 

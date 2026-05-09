@@ -9,6 +9,7 @@ pub mod lexer;
 mod machine;
 pub mod parser;
 pub mod source;
+pub mod tool;
 pub mod tui;
 mod ui;
 
