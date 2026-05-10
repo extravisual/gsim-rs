@@ -22,8 +22,8 @@ use crate::{
 pub struct BlockSummary {
     /// Textual representations of all the [`GCode`]s in the block.
     pub gcodes: Vec<String>,
-    /// Textual representations of the [`MCode`] in the block.
-    pub mcode: Option<String>,
+    /// [`MCode`] in the block.
+    pub mcode: Option<MCode>,
     /// Textual representations of all the [`Code`]s in the block.
     pub codes: Vec<String>,
     /// Captures any motions and position changes.
@@ -139,9 +139,7 @@ impl Interpreter {
             }
         }
 
-        let mut mcode_line = None;
         if let Some(mcode) = block.mcode() {
-            mcode_line = Some(mcode.to_string());
             match mcode {
                 MCode::Stop => Self::wait()?,
 
@@ -271,7 +269,7 @@ impl Interpreter {
 
         Ok(Some(BlockSummary {
             gcodes: gcode_lines,
-            mcode: mcode_line,
+            mcode: block.mcode(),
             codes: code_lines,
             motion,
             org_pos,
@@ -316,6 +314,8 @@ pub enum InterpreterError {
     /// At least one code from a code block exists that was not consumed.
     ExcessCode(Prefix),
 }
+
+impl std::error::Error for InterpreterError {}
 
 impl From<io::Error> for InterpreterError {
     fn from(e: io::Error) -> Self {

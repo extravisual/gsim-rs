@@ -121,6 +121,8 @@ pub enum SourceError {
     IO(std::io::Error),
 }
 
+impl std::error::Error for SourceError {}
+
 impl Describe for SourceError {
     fn describe(&self) -> Description {
         match self {

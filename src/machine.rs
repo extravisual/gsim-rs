@@ -1341,6 +1341,8 @@ pub enum MachineError {
     OffsetDirection(Direction),
 }
 
+impl std::error::Error for MachineError {}
+
 impl Describe for MachineError {
     fn describe(&self) -> crate::describe::Description {
         let (title, desc) = match self {

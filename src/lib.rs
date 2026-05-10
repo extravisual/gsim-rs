@@ -1,4 +1,3 @@
-pub mod app;
 pub mod config;
 pub mod describe;
 mod error;
@@ -11,9 +10,8 @@ pub mod parser;
 pub mod source;
 pub mod tool;
 pub mod tui;
-mod ui;
 
-use crate::{app::View, gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
+use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
@@ -33,7 +31,7 @@ pub enum Command {
     Stop(Option<anyhow::Error>),
 }
 
-/// Communicates if the [`Winit`](winit) event loop is ready to process
+/// Communicates when the [`Winit`](winit) event loop is ready to process
 /// another [`Command`] from [`Ratatui`](ratatui) loop.
 #[derive(Debug, Clone, Copy)]
 pub enum Signal {
@@ -41,11 +39,30 @@ pub enum Signal {
     Stop,
 }
 
+/// Represents the possible views that can be used in the [`Gui`] and controlled using [`Tui`].
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, bytemuck::Zeroable)]
+pub enum View {
+    /// Simlutate `X` & `Y` axes, from **top view**.
+    Top,
+    /// Simuate all three axes, from **isometric view**.
+    #[default]
+    Isometric,
+}
+
+// required for use in gui uniforms
+unsafe impl bytemuck::Pod for View {}
+
+/// Main entry point for the program.
+///
+/// Sets up [`Gui`] in the **main thread**, and [`Tui`] in a **new thread**.
+/// Sets up bidirectional communication between both the threads,
+/// using a [`Channel`](std::sync::mpsc::channel) and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
 pub fn run() -> anyhow::Result<()> {
     let (sender, receiver) = std::sync::mpsc::channel();
 
     let gui = Gui::new(sender, MACHINE_TRAVELS);
-    let tui = Tui::new(receiver, MACHINE_TRAVELS, gui.create_proxy());
+    let tui = Tui::build(receiver, MACHINE_TRAVELS, gui.create_proxy())?;
 
     let tui = std::thread::Builder::new()
         .name("TUI".to_string())

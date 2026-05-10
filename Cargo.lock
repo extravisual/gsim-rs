@@ -971,6 +971,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "env_logger",
+ "log",
  "pollster",
  "ratatui",
  "wgpu",

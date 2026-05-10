@@ -1047,7 +1047,7 @@ impl Iterator for GCodes {
 ///
 /// A M-code is used to control machine specific features, mostly as an on-off switch.
 /// Each variant contains all the other variable values it needs to be a valid.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(usize)]
 pub enum MCode {
     /// M00
