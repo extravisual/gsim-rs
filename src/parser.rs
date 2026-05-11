@@ -1,7 +1,6 @@
 //! # Parser
 //!
-//! This module depends on the output of the [`Lexer`],
-//! and is responsible for converting a sequence of G-code [`Block`]s (represented as [`Lexer`]),
+//! Consumes a [`Lexer`], converting a sequence of G-code [`Block`]s (represented as [`Lexer`]),
 //! to a sequence of [`CodeBlock`]s (represented as [`Parser`].
 //!
 //! This parser is **stateless** and does not deal with any state logic across blocks.
@@ -13,22 +12,13 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
+use super::lexer::{
+    Block, *, {Float, Group, Int, Prefix},
+};
 use std::{
     cmp::PartialEq,
     fmt::{Debug, Display},
     ops::{Add, Sub},
-};
-
-use crate::{
-    describe::{Describe, Description},
-    machine::PlanarPoint,
-};
-
-use super::{
-    error::{RED, RESET},
-    lexer::{
-        Block, *, {Float, Group, Int, Prefix},
-    },
 };
 
 /// Possible planes for a 3-axis machine.
@@ -47,9 +37,7 @@ pub enum Plane {
 pub struct Point(Float, Float, Float);
 
 impl Point {
-    /// Constructor for a [`Point`].
-    ///
-    /// The fields represent X, Y, and Z axis respectively and are necessary.
+    /// Constructor for a [`Point`] from X,Y, and Z axis values.
     pub const fn new(x: Float, y: Float, z: Float) -> Self {
         Self(x, y, z)
     }
@@ -138,20 +126,16 @@ impl Point {
         }
     }
 
+    /// Multiplies the provided `factor` to each axis value and returns a new [`Point`] with these
+    /// new values.
     pub fn mul_float(&self, factor: f64) -> Self {
         Self::new(self.x() * factor, self.y() * factor, self.z() * factor)
     }
 
+    /// Divides each axis value with the provided `divisor` and returns a new [`Point`] with these
+    /// new values.
     pub fn div_float(&self, divisor: f64) -> Self {
         Self::new(self.x() / divisor, self.y() / divisor, self.z() / divisor)
-    }
-
-    pub fn planar(&self, plane: Plane) -> PlanarPoint {
-        match &plane {
-            Plane::XY => PlanarPoint::new(plane, self.x(), self.y()),
-            Plane::XZ => PlanarPoint::new(plane, self.x(), self.z()),
-            Plane::YZ => PlanarPoint::new(plane, self.y(), self.z()),
-        }
     }
 }
 
@@ -177,8 +161,6 @@ pub struct PartialPoint(Option<Float>, Option<Float>, Option<Float>);
 
 impl PartialPoint {
     /// Constructs a [`PartialPoint`] using [`Option<Float>`] for each axis.
-    ///
-    /// The fields represent X, Y, and Z axis respectively and are *optional*.
     pub fn new(x: Option<Float>, y: Option<Float>, z: Option<Float>) -> Self {
         PartialPoint(x, y, z)
     }
@@ -188,17 +170,17 @@ impl PartialPoint {
         (self.0, self.1, self.2)
     }
 
-    /// Returns current position of the 'X' axis.
+    /// Returns current position of the 'X' axis, if present.
     pub fn x(&self) -> Option<Float> {
         self.0
     }
 
-    /// Returns current position of the 'Y' axis.
+    /// Returns current position of the 'Y' axis, if present.
     pub fn y(&self) -> Option<Float> {
         self.1
     }
 
-    /// Returns current position of the 'Z' axis.
+    /// Returns current position of the 'Z' axis, if present.
     pub fn z(&self) -> Option<Float> {
         self.2
     }
@@ -230,42 +212,34 @@ impl PartialPoint {
 
 impl Display for PartialPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.are_none() {
-            return Ok(());
-        }
-
-        write!(f, "(")?;
+        let mut axes = vec![];
 
         if let Some(x) = self.x() {
-            write!(f, "X: {x}")?
+            axes.push(format!("X: {x}"));
         }
 
         if let Some(y) = self.y() {
-            if self.x().is_some() {
-                write!(f, ", Y: {y}")?
-            } else {
-                write!(f, "Y: {y}")?
-            }
+            axes.push(format!("Y: {y}"));
         }
 
         if let Some(z) = self.z() {
-            if self.x().is_some() || self.y().is_some() {
-                write!(f, ", Z: {z}")?
-            } else {
-                write!(f, "Z: {z}")?
-            }
+            axes.push(format!("Z: {z}"));
         }
 
-        write!(f, ")")
+        if axes.is_empty() {
+            return Ok(());
+        }
+
+        write!(f, "({})", axes.join(", "))
     }
 }
 
 /// Circular Interpolation helper.
 ///
 /// Both relative point and radius must not appear in the same block.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CircleMethod {
-    /// Relative coordinate of circle center with **I, J & K**.
+    /// Relative coordinate of circle center with **I, J & K** from current position.
     RelativePoint(PartialPoint),
     /// Explicit radius specified with **R**.
     FixedRadius(Float),
@@ -303,7 +277,7 @@ fn try_float(token: &Token) -> Result<Float, ParserError> {
 /// Represents a parsed & validated [`Token`].
 ///
 /// This type ensures that each [`Prefix`] is valid and is grouped with a valid [`Suffix`] type.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Code {
     D(Int),
     G(Int),
@@ -329,9 +303,12 @@ pub enum Code {
 impl Code {
     /// Tries to construct a [`Code`] from a [`Token`].
     ///
-    /// Returns a `Code` if the `token.prefix` is valid
-    /// and the `token.suffix` type is valid for the said prefix.
-    /// Returns a [`ParserError`] on failure.
+    /// Returns a [`Code`] if the [`Token::prefix`] is valid
+    /// and the [`Token::suffix`] type is valid for the said prefix.
+    ///
+    /// # Errors
+    /// Returns [`ParserError::UnknownPrefix`]
+    /// if a code with unknown [`Prefix`] is found.
     fn parse(token: &Token) -> Result<Self, ParserError> {
         let code = match token.prefix {
             b'D' => Self::D(try_int(token)?),
@@ -429,7 +406,9 @@ impl Codes {
 
     /// Tries to add a new [`Code`] to `self`. The code **must not** be [`Code::G`] or [`Code::M`] variant.
     ///
-    /// Returns [`ParserError::DuplicatePrefix`] if a code with same [`Prefix`] is already present.
+    /// # Errors
+    /// Returns [`ParserError::DuplicatePrefix`]
+    /// if a code with same [`Prefix`] is already present.
     ///
     /// # Panics
     /// Panics if called with [`Code::G`] or [`Code::M`] variants.
@@ -453,8 +432,8 @@ impl Codes {
             Code::Y(y) if self.y.is_none() => self.y = Some(y),
             Code::Z(z) if self.z.is_none() => self.z = Some(z),
 
-            Code::G(_) => panic!("G prefixed code was pushed to codes. Logic Error!"),
-            Code::M(_) => panic!("M prefixed code was pushed to codes. Logic Error!"),
+            Code::G(_) => unreachable!("G prefixed code was pushed to codes. Logic Error!"),
+            Code::M(_) => unreachable!("M prefixed code was pushed to codes. Logic Error!"),
 
             _ => return Err(ParserError::DuplicatePrefix(code.prefix())),
         };
@@ -484,6 +463,10 @@ impl Codes {
     /// - [`PartialPoint`] -- Destination coordinates.
     /// - [`CircleMethod`] -- Method to use for the circle.
     /// - [`Option<Float>`] -- Feedrate, if provided.
+    ///
+    /// # Errors
+    /// Returns [`ParserError::AmbiguousCircleMethod`] or [`ParserError::InvalidCircle`] on
+    /// failure.
     pub fn take_circular(
         &mut self,
     ) -> Result<(PartialPoint, CircleMethod, Option<Float>), ParserError> {
@@ -533,7 +516,7 @@ impl Iterator for Codes {
     /// **Optionally** returns the next [`Code`].
     /// Returns [`None`] when the data has exhausted.
     ///
-    /// This function will **never return** the [`Code::G`] or [`Code::M`] variants of [`Code`].
+    /// This function will **never** return the [`Code::G`] or [`Code::M`] variants of [`Code`].
     fn next(&mut self) -> Option<Self::Item> {
         #![allow(clippy::redundant_closure)]
         if self.d.is_some() {
@@ -578,7 +561,7 @@ impl Iterator for Codes {
 ///
 /// A G-code is used in toolpaths to move axes of a machine in a controlled way.
 /// Each variant contains all the other variable values it needs to be valid.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(usize)]
 pub enum GCode {
     /// G00
@@ -712,9 +695,10 @@ impl GCode {
     /// Accepts a [`Code::G`] variant of [`Code`],
     /// and a **mutable reference** to [`Codes`] that were found in the same [`Block`].
     ///
-    /// The values used in parsing the `GCode` **will be removed** from `codes` as required.
+    /// The values used in parsing the [`GCode`] **will be removed** from `codes` as required.
     ///
-    /// Returns a [`ParserError`] on failure.
+    /// # Errors
+    /// Returns a [`ParserError::InvalidParamForGCode`] or [`ParserError::InvalidGCode`] on failure.
     ///
     /// # Panics
     /// Panics if called with any variant of [`Code`] that is not [`Code::G`].
@@ -822,7 +806,7 @@ impl GCode {
 
             Ok(gcode)
         } else {
-            panic!("Non 'G' prefixed code was tried to be parsed as GCode. Logic Error!");
+            unreachable!("Non 'G' prefixed code was tried to be parsed as GCode. Logic Error!");
         }
     }
 
@@ -833,7 +817,7 @@ impl GCode {
     /// At any given time **only one G-code** from each group can be supplied and be activated.
     /// A line/block of code with more than one G-codes of the same group is **invalid**.
     ///
-    /// Reference:
+    /// # Reference:
     /// [Haas](https://www.haascnc.com/service/service-content/guide-procedures/what-are-g-codes.html#gsc.tab=0)
     pub fn group(&self) -> Group {
         match self {
@@ -878,118 +862,108 @@ impl GCode {
 
 impl Display for GCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "G{:0>2} - ", self.suffix())?;
+        let mut textual = vec![format!("G{:0>2} - ", self.suffix())];
 
         match self {
             Self::RapidMove(pos) => {
-                if pos.are_none() {
-                    write!(f, "Rapid Move")
-                } else {
-                    write!(f, "Rapid Move to: {pos}")
+                textual.push("Rapid Move".into());
+                if !pos.are_none() {
+                    textual.push(format!(" to: {pos}"));
                 }
             }
 
-            Self::FeedMove { pos, feed } => match feed {
-                Some(feed) => {
-                    if pos.are_none() {
-                        write!(f, "Feed Move, with feed: {feed}")
-                    } else {
-                        write!(f, "Feed Move, with feed: {feed}, to: {pos}")
-                    }
-                }
-                None => {
-                    if pos.are_none() {
-                        write!(f, "Feed Move")
-                    } else {
-                        write!(f, "Feed Move to: {pos}")
-                    }
-                }
-            },
+            Self::FeedMove { pos, feed } => {
+                textual.push("Feed Move".into());
 
-            Self::CWArcMove { pos, method, feed } => match feed {
+                if !pos.are_none() {
+                    textual.push(format!(" to: {pos}"));
+                }
+
+                if let Some(feed) = feed {
+                    textual.push(format!(" with feed: {feed}"));
+                }
+            }
+
+            Self::CWArcMove { pos, method, feed } => {
                 // pos.are_none() will always be false for arc moves
-                Some(feed) => {
-                    write!(
-                        f,
-                        "Clockwise Move using:\n{method}, with feed: {feed}, to: {pos}"
-                    )
-                }
-                None => {
-                    write!(f, "Clockwise Move using:\n{method}, to: {pos}")
-                }
-            },
+                textual.push(format!("Clockwise Move with {method} to: {pos}"));
 
-            Self::CCWArcMove { pos, method, feed } => match feed {
+                if let Some(feed) = feed {
+                    textual.push(format!(" with feed: {feed}"));
+                }
+            }
+
+            Self::CCWArcMove { pos, method, feed } => {
                 // pos.are_none() will always be false for arc moves
-                Some(feed) => {
-                    write!(
-                        f,
-                        "Counter-Clockwise Move using:\n{method}, with feed: {feed}, to: {pos}"
-                    )
+                textual.push(format!("Counter-Clockwise Move with {method} to: {pos}"));
+
+                if let Some(feed) = feed {
+                    textual.push(format!(" with feed: {feed}"));
                 }
-                None => {
-                    write!(f, "Counter-Clockwise Move using:\n{method}, to: {pos}")
-                }
-            },
-
-            Self::Dwell(p) => write!(f, "Dwell for {p} seconds"),
-
-            Self::XYPlane => write!(f, "Select XY Plane"),
-
-            Self::XZPlane => write!(f, "Select XZ Plane"),
-
-            Self::YZPlane => write!(f, "Select YZ Plane"),
-
-            Self::ImperialMode => write!(f, "Activate Imperial Mode"),
-
-            Self::MetricMode => write!(f, "Activate Metric Mode"),
-
-            Self::CancelCutterComp => write!(f, "Cancel Cutter Compensation"),
-
-            Self::LeftCutterComp(d) => {
-                write!(f, "Activate Left Cutter Compensation with D{d} offset")
             }
 
-            Self::RightCutterComp(d) => {
-                write!(f, "Activate Right Cutter Compensation with D{d} offset")
+            Self::Dwell(p) => textual.push(format!("Dwell for {p} seconds")),
+
+            Self::XYPlane => textual.push("Select XY Plane".into()),
+
+            Self::XZPlane => textual.push("Select XZ Plane".into()),
+
+            Self::YZPlane => textual.push("Select YZ Plane".into()),
+
+            Self::ImperialMode => textual.push("Activate Imperial Mode".into()),
+
+            Self::MetricMode => textual.push("Activate Metric Mode".into()),
+
+            Self::CancelCutterComp => textual.push("Cancel Cutter Compensation".into()),
+
+            Self::LeftCutterComp(d) => textual.push(format!(
+                "Activate Left Cutter Compensation with D{d} offset"
+            )),
+
+            Self::RightCutterComp(d) => textual.push(format!(
+                "Activate Right Cutter Compensation with D{d} offset"
+            )),
+
+            Self::ToolLenCompAdd(h) => textual.push(format!("Add Tool Length with H{h} offset")),
+
+            Self::ToolLenCompSubtract(h) => {
+                textual.push(format!("Subtract Tool Length with H{h} offset"))
             }
 
-            Self::ToolLenCompAdd(h) => write!(f, "Add Tool Length with H{h} offset"),
+            Self::CancelLenComp => textual.push("Cancel Tool Length Compensation".into()),
 
-            Self::ToolLenCompSubtract(h) => write!(f, "Subtract Tool Length with H{h} offset"),
+            Self::MachineCoord(pos) => textual.push(format!("Machine Position Move to: {pos}")), // machine pos will not be none for all coords
 
-            Self::CancelLenComp => write!(f, "Cancel Tool Length Compensation"),
+            Self::WorkCoord => textual.push("Activate Work Coordinate offset".into()),
 
-            Self::MachineCoord(pos) =>
-            // machine pos will not be none for all coords
-            {
-                write!(f, "Machine Position Move to: {pos}")
+            Self::CancelCanned => textual.push("Cancel Canned cycle".into()),
+
+            Self::AbsoluteMode => textual.push("Activate Absolute Positioning".into()),
+
+            Self::IncrementalMode => textual.push("Activate Incremental Positioning".into()),
+
+            Self::FeedMinute => textual.push("Activate Inverse Minute Feed mode".into()),
+
+            Self::FeedRev => textual.push("Activate Inverse Revolution Feed mode".into()),
+
+            Self::InitialReturn => {
+                textual.push("Activate Initial Level return in canned cycles".into())
             }
 
-            Self::WorkCoord => write!(f, "Activate Work Coordinate offset"),
+            Self::RetractReturn => {
+                textual.push("Activate Retract Level return in canned cycles".into())
+            }
+        };
 
-            Self::CancelCanned => write!(f, "Cancel Canned cycle"),
-
-            Self::AbsoluteMode => write!(f, "Activate Absolute Positioning"),
-
-            Self::IncrementalMode => write!(f, "Activate Incremental Positioning"),
-
-            Self::FeedMinute => write!(f, "Activate Inverse Minute Feed mode"),
-
-            Self::FeedRev => write!(f, "Activate Inverse Revolution Feed mode"),
-
-            Self::InitialReturn => write!(f, "Activate Initial Level return in canned cycles"),
-
-            Self::RetractReturn => write!(f, "Activate Retract Level return in canned cycles"),
-        }
+        write!(f, "{}", textual.join(""))
     }
 }
 
-/// Represents a collection of **unique** [`GCode`]s, belonging to unique [`Group`]s.
+/// Represents a collection of **unique** [`GCode`]s, belonging to unique groups.
 ///
 /// This type ensures that:
 /// -- Each GCode is not present more than once.
-/// -- Multiple GCodes from the same Group do not exist at once.
+/// -- Multiple GCodes from the same Group do not exist in a single block.
 #[derive(Debug, Default)]
 pub struct GCodes {
     codes: Vec<GCode>,
@@ -1000,15 +974,15 @@ pub struct GCodes {
 }
 
 impl GCodes {
-    /// Constructs a new [`GCodes`], ready to store unique [`GCode`]s with unique [`Group`]s.
+    /// Constructs a new [`GCodes`], ready to store unique [`GCode`]s with unique groups.
     fn new() -> Self {
         Self::default()
     }
 
     /// Tries to add a new [`GCode`] to `self`.
     ///
-    /// Returns [`ParserError`] when the the same suffix or same group is already present,
-    /// indicating failure.
+    /// # Errors
+    /// Returns [`ParserError::DuplicateGCode`] or [`ParserError::DuplicateGCodeGroup`] on failure.
     fn push(&mut self, gcode: GCode) -> Result<(), ParserError> {
         let suffix = gcode.suffix();
         let group = gcode.group();
@@ -1091,7 +1065,7 @@ impl MCode {
     /// Provides the numeric value, suffix of a [`MCode`],
     /// by returning a primitive discriminant of the enumeration.
     ///
-    /// The returned number would be the same one that was tokeniezed
+    /// The returned number would be the same one that was tokenized
     /// by the [`Lexer`] as the [`Suffix`].
     ///
     /// # SAFETY
@@ -1108,7 +1082,8 @@ impl MCode {
     ///
     /// The values used in parsing the `MCode` **will be removed** from `codes` as required.
     ///
-    /// Returns a [`ParserError`] on failure.
+    /// # Errors
+    /// Returns a [`ParserError::InvalidMCode`] on failure.
     ///
     /// # Panics
     /// Panics if called with any variant of [`Code`] that is not [`Code::M`].
@@ -1130,44 +1105,46 @@ impl MCode {
 
             Ok(mcode)
         } else {
-            panic!("Non 'M' prefixed code was tried to be parsed as MCode. Logic Error!");
+            unreachable!("Non 'M' prefixed code was tried to be parsed as MCode. Logic Error!");
         }
     }
 }
 
 impl Display for MCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "M{:0>2} - ", self.suffix())?;
+        let mut textual = vec![format!("M{:0>2} - ", self.suffix())];
 
-        match self {
-            Self::Stop => write!(f, "Program Stop"),
-            Self::OptionalStop => write!(f, "Optional Stop"),
+        textual.push(match self {
+            Self::Stop => "Program Stop".into(),
+            Self::OptionalStop => "Optional Stop".into(),
             Self::SpindleFwd(s) => {
                 if let Some(s) = s {
-                    write!(f, "Clockwise Spindle On, at {s} RPMs")
+                    format!("Clockwise Spindle On, at {s} RPMs")
                 } else {
-                    write!(f, "Clockwise Spindle On")
+                    "Clockwise Spindle On".into()
                 }
             }
             Self::SpindleRev(s) => {
                 if let Some(s) = s {
-                    write!(f, "Counter-Clockwise Spindle On, at {s} RPMs")
+                    format!("Counter-Clockwise Spindle On, at {s} RPMs")
                 } else {
-                    write!(f, "Counter-Clockwise Spindle On")
+                    "Counter-Clockwise Spindle On".into()
                 }
             }
-            Self::SpindleStop => write!(f, "Spindle Off"),
+            Self::SpindleStop => "Spindle Off".into(),
             Self::ToolChange(t) => {
                 if let Some(t) = t {
-                    write!(f, "Tool Change to tool number: {t}")
+                    format!("Tool Change to tool number: {t}")
                 } else {
-                    write!(f, "Tool Change to any preloaded tool")
+                    "Tool Change to any preloaded tool".into()
                 }
             }
-            Self::CoolantOn => write!(f, "Coolant On"),
-            Self::CoolantOff => write!(f, "Coolant Off"),
-            Self::End => write!(f, "Program End"),
-        }
+            Self::CoolantOn => "Coolant On".into(),
+            Self::CoolantOff => "Coolant Off".into(),
+            Self::End => "Program End".into(),
+        });
+
+        write!(f, "{}", textual.join(""))
     }
 }
 
@@ -1226,7 +1203,7 @@ impl CodeBlock {
         &mut self.gcodes
     }
 
-    /// Returns a `Optional` parsed [`MCode`].
+    /// [`Option`]ally returns the parsed [`MCode`].
     pub fn mcode(&mut self) -> Option<MCode> {
         self.mcode.take()
     }
@@ -1258,7 +1235,7 @@ impl Parser {
         self.0.reload();
     }
 
-    /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).
+    /// **Optionally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.0.get_line(index)
     }
@@ -1284,218 +1261,62 @@ impl Iterator for Parser {
 }
 
 /// Possible errors that can happen during parsing.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, thiserror::Error)]
 pub enum ParserError {
     /// This prefix does not support the type of suffix provided.
+    #[error("wrong suffix type found after prefix: '{}'", *.0 as char)]
     WrongSuffixType(Prefix),
     /// The code prefix provided is invalid/unimplemented
+    #[error("unsupported prefix: '{}'", *.0 as char)]
     UnknownPrefix(Prefix),
     /// Same G-code found atleast twice.
+    #[error("duplicate GCode found: 'G{0}'")]
     DuplicateGCode(Int),
     /// Prefix and suffix make an invalid G-code.
+    #[error("unsupported GCode: 'G{0}'")]
     InvalidGCode(Int),
     /// G-codes detected from the same group.
+    #[error("duplicate GCode found from group: '{0}'")]
     DuplicateGCodeGroup(Group),
     /// Multiple codes of same prefix in the same line.
     /// Only multiple G-codes are allowed in one line.
+    #[error("duplicate prefix: '{}'", *.0 as char)]
     DuplicatePrefix(Prefix),
     /// The tokens passed along with a 'G' prefix token
     /// do not meet the requirements of the said GCode variant.
+    #[error("requirements for 'G{0}' not met")]
     InvalidParamForGCode(Int),
     /// Missing token required for a GCode variant.
+    #[error("could not find required prefix '{}' for parsing GCode", *.0 as char)]
     MissingCodeForGCode(Prefix),
     /// The code block contains codes for both variants of circle methods.
+    #[error("codes from both arc methods detected")]
     AmbiguousCircleMethod,
     /// Conditions for a particular circle method were not met, or the end coords are missing.
+    #[error("{}", invalid_circle_msg(.0))]
     InvalidCircle(Option<CircleMethod>),
     /// Prefix and suffix make an invalid M-code.
+    #[error("unsupported MCode: 'M{0}'")]
     InvalidMCode(Int),
     /// Missing token required for a MCode variant.
+    #[error("could not find required prefix '{}' for parsing MCode", *.0 as char)]
     MissingCodeForMCode(Prefix),
     /// Prefix was found after parsing G & M Codes, but cannot be parsed on its own.
+    #[error("unconsumed prefix: '{}'", *.0 as char)]
     UnexpectedPrefix(Prefix),
-    Lexer(LexerError),
+    #[error("tokenization failed")]
+    Lexer(#[from] LexerError),
 }
 
-impl From<LexerError> for ParserError {
-    fn from(e: LexerError) -> Self {
-        Self::Lexer(e)
-    }
-}
+/// Genertes error message for [`ParserError::InvalidCircle`]
+fn invalid_circle_msg(opt: &Option<CircleMethod>) -> &'static str {
+    match opt {
+        Some(method) => match method {
+            CircleMethod::RelativePoint(_) => "relative center of arc not on a single plane",
 
-impl Describe for ParserError {
-    fn describe(&self) -> Description {
-        let (title, desc) = match self {
-            Self::WrongSuffixType(prefix) => (
-                "Wrong Suffix Type Detected",
-                format!(
-                    "The following prefix has a wrong suffix type: '{}'.",
-                    *prefix as char
-                ),
-            ),
-
-            Self::UnknownPrefix(prefix) => (
-                "Unsupported Prefix Detected",
-                format!(
-                    "The following prefix is not supported: '{}'.",
-                    *prefix as char
-                ),
-            ),
-
-            Self::DuplicateGCode(suffix) => (
-                "Duplicate G-Code Detected",
-                format!("The following code was repeated: 'G{suffix}'."),
-            ),
-
-            Self::InvalidGCode(suffix) => (
-                "Invalid G-Code Detected",
-                format!("The following G-Code is not supported: 'G{suffix}'."),
-            ),
-
-            Self::DuplicateGCodeGroup(group) => (
-                "Duplicate G-Code Group Detected",
-                format!(
-                    "The following group contains more than one G-Codes that belong to it: '{group}'."
-                ),
-            ),
-
-            Self::DuplicatePrefix(prefix) => (
-                "Duplicate Prefix Detected",
-                format!(
-                    "The following prefix code appears more than once: '{}'.",
-                    *prefix as char
-                ),
-            ),
-
-            Self::InvalidParamForGCode(suffix) => (
-                "Invalid Parameter Detected",
-                format!("The following G-Code requirements were not met: 'G{suffix}'."),
-            ),
-
-            Self::MissingCodeForGCode(prefix) => (
-                "Required Code not found for G-Code",
-                format!(
-                    "The following prefix code was not found: '{}'.",
-                    *prefix as char
-                ),
-            ),
-
-            Self::AmbiguousCircleMethod => (                "Ambiguous Circle Method Detected", "The code block contains codes from each of the two circular methods, which is invalid.".to_string()
-            ),
-
-            Self::InvalidCircle(opt) => ("Invalid Circle Detected", match opt {
-                Some(method) => match method {
-                    CircleMethod::RelativePoint(_) => "The relative center of the requested arc must lie on one single plane.".to_string(),
-                    CircleMethod::FixedRadius(_) => "The radius of the requested arc is detected to be zero, which is invalid.".to_string(),
-                },
-                None => "No end coordinates were detected for the requested arc.".to_string(),
-            }),
-
-            Self::InvalidMCode(suffix) => (                "Invalid M-Code Detected", format!("The following M-Code is not supported by this parser: 'M{suffix}'.")),
-
-            Self::MissingCodeForMCode(prefix) => (                "Required Code not found for M-Code", format!("The following prefix code was not found: '{}'.",
-                *prefix as char)
-            ),
-
-            Self::UnexpectedPrefix(prefix) => (                "Unexpected Prefix Detected", format!("The following prefix was not consumed by the parser, but cannot be parsed on its own: '{}'.",
-                *prefix as char)
-            ),
-
-            Self::Lexer(e) => return e.describe(),
-        };
-
-        Description::new(title, desc)
-    }
-}
-
-impl Display for ParserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match self {
-            Self::WrongSuffixType(prefix) => write!(
-                f,
-                "Wrong Suffix Type Detected:{RESET}\n\t\tThe following prefix has a wrong suffix type: '{RED}{}{RESET}'.",
-                *prefix as char
-            ),
-
-            Self::UnknownPrefix(prefix) => write!(
-                f,
-                "Unsupported Prefix Detected:{RESET}\n\t\tThe following prefix is not supported: '{RED}{}{RESET}'.",
-                *prefix as char
-            ),
-
-            Self::DuplicateGCode(suffix) => write!(
-                f,
-                "Duplicate G-Code Detected:{RESET}\n\t\tThe following code was repeated: '{RED}G{suffix}{RESET}'."
-            ),
-
-            Self::InvalidGCode(suffix) => write!(
-                f,
-                "Invalid G-Code Detected:{RESET}\n\t\tThe following G-Code is not supported: '{RED}G{suffix}{RESET}'."
-            ),
-
-            Self::DuplicateGCodeGroup(group) => write!(
-                f,
-                "Duplicate G-Code Group Detected:{RESET}\n\t\tThe following group contains more than one G-Codes that belong to it: '{RED}{group}{RESET}'."
-            ),
-
-            Self::DuplicatePrefix(prefix) => write!(
-                f,
-                "Duplicate Prefix Detected:{RESET}\n\t\tThe following prefix code appears more than once: '{RED}{}{RESET}'.",
-                *prefix as char
-            ),
-
-            Self::InvalidParamForGCode(suffix) => write!(
-                f,
-                "Invalid Parameter Detected:{RESET}\n\t\tThe following G-Code requirements were not met: '{RED}G{suffix}{RESET}'."
-            ),
-
-            Self::MissingCodeForGCode(prefix) => write!(
-                f,
-                "Required Code not found for G-Code:{RESET}\n\t\tThe following prefix code was not found: '{RED}{}{RESET}'.",
-                *prefix as char
-            ),
-
-            Self::AmbiguousCircleMethod => write!(
-                f,
-                "Ambiguous Circle Method Detected:{RESET}\n\t\tThe code block contains codes from each of the two circular methods, which is invalid."
-            ),
-
-            Self::InvalidCircle(opt) => match opt {
-                Some(method) => match method {
-                    CircleMethod::RelativePoint(_) => write!(
-                        f,
-                        "Invalid Circle Detected:{RESET}\n\t\tThe relative center of the requested arc must lie on one single plane."
-                    ),
-                    CircleMethod::FixedRadius(_) => write!(
-                        f,
-                        "Invalid Circle Detected:{RESET}\n\t\tThe radius of the requested arc is detected to be zero, which is invalid."
-                    ),
-                },
-                None => write!(
-                    f,
-                    "Invalid Circle Detected:{RESET}\n\t\tNo end coordinates were detected for the requested arc."
-                ),
-            },
-
-            Self::InvalidMCode(suffix) => write!(
-                f,
-                "Invalid M-Code Detected:{RESET}\n\t\tThe following M-Code is not supported by this parser: '{RED}M{suffix}{RESET}'."
-            ),
-
-            Self::MissingCodeForMCode(prefix) => write!(
-                f,
-                "Required Code not found for M-Code:{RESET}\n\t\tThe following prefix code was not found: '{RED}{}{RESET}'.",
-                *prefix as char
-            ),
-
-            Self::UnexpectedPrefix(prefix) => write!(
-                f,
-                "Unexpected Prefix Detected:{RESET}\n\t\tThe following prefix was not consumed by the parser, but cannot be parsed on its own: '{RED}{}{RESET}'.",
-                *prefix as char
-            ),
-
-            Self::Lexer(e) => write!(f, "{e}"),
-        }
+            CircleMethod::FixedRadius(_) => "zero radius arc requested",
+        },
+        None => "end coordinates not found for the requested arc",
     }
 }
 

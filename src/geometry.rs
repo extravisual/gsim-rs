@@ -3,8 +3,8 @@ use std::{cmp::Ordering, f64::consts::PI};
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    app::View,
-    machine::{Arc, CircularDirection, Line, MotionSummary},
+    View,
+    machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
     parser::{Plane, Point},
 };
 
@@ -509,7 +509,7 @@ impl Vertices {
     // reference: https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/
     fn arc_points(arc: Arc) -> Self {
         let plane = arc.center.plane();
-        let start = arc.start.planar(plane);
+        let start = PlanarPoint::from_point(arc.start, plane);
 
         let center = arc.center;
         let radius = arc.radius;

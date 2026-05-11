@@ -1,15 +1,10 @@
 //! # Lexer
 //!
-//! This module is responsible for converting [`Source`] (with  raw **ASCII G-Code lines**),
+//! Converts a [`Source`] (with  raw **ASCII G-Code lines**),
 //! into usable [`Token`]s (represented as [`Lexer`]), which then can then be parsed.
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-use std::fmt::Display;
-
-use crate::describe::{Describe, Description};
-
-use super::error::{RED, RESET};
 use super::source::Source;
 
 /// Prefix **ASCII** character for codes.
@@ -23,7 +18,7 @@ pub type Group = u8;
 
 /// Represents a numeric suffix for a [`Token`].
 ///
-/// A G-code field can contain an integer or a floating point.
+/// A G-Code field can contain an integer or a floating point.
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Suffix {
     Int(Int),
@@ -48,19 +43,10 @@ impl Suffix {
     }
 }
 
-impl Display for Suffix {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Suffix::Int(s) => write!(f, "{s}"),
-            Suffix::Float(s) => write!(f, "{s}"),
-        }
-    }
-}
-
 /// A token represents a single **G-Code field**.
 ///
-/// A field begins with a single alphabet([`Prefix`]),
-/// followed by a numeric suffix(an [`Int`] or [`Float`]).
+/// A field begins with a single alphabet ([`Prefix`]),
+/// followed by a numeric [`Suffix`] (an [`Int`] or [`Float`]).
 ///
 /// Any whitespace is ignored.
 ///
@@ -86,6 +72,8 @@ impl Block {
     /// Constructs a [`Block`] by tokenizing raw **ASCII G-Code line**.
     ///
     /// Accepts a **sanitized** line as a string slice, taken from [`Source`].
+    ///
+    /// # Errors
     /// Returns a [`LexerError`] on failure.
     fn tokenize(line: &str) -> Result<Self, LexerError> {
         let mut tokens = vec![];
@@ -124,8 +112,7 @@ impl Block {
                         let suffix =
                             parse_suffix(suffix_opt.map(|start| &line[start..index]), prefix)?;
 
-                        // add to vec and read next
-                        tokens.push(Token { prefix, suffix });
+                        tokens.push(Token { prefix, suffix }); // add to vec and read next
 
                         // reset for the next word and use the alphabet, if found
                         prefix_opt = if byte.is_ascii_alphabetic() {
@@ -134,8 +121,8 @@ impl Block {
                             None
                         };
                         suffix_opt = None;
-                        // read suffix
                     } else if byte.is_ascii_digit() || *byte == b'.' || *byte == b'-' {
+                        // read suffix
                         match suffix_opt {
                             None => suffix_opt = Some(index),
                             Some(_) => {
@@ -198,7 +185,7 @@ impl Lexer {
         self.0.reload();
     }
 
-    /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`].
+    /// **Optionally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`].
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.0.get(index)
     }
@@ -219,76 +206,20 @@ impl Iterator for Lexer {
 }
 
 /// Possible errors that can happen during tokenization.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
     /// A non-ASCII char is detected.
+    #[error("non-ASCII character found in source")]
     IllegalChar,
     /// An invalid ASCII G-code char is detected.
+    #[error("unsupported ASCII character: '{}'", *.0 as char)]
     NonUsableChar(Prefix),
     /// No numeric suffix found.
+    #[error("no numeric suffix found after prefix: '{}'", *.0 as char)]
     NoSuffix(Prefix),
     /// Error while parsing numeric suffix.
+    #[error("failed to parse numeric suffix after prefix: '{}'", *.0 as char)]
     ParseSuffix(Prefix),
-}
-
-impl Describe for LexerError {
-    fn describe(&self) -> Description {
-        let (title, desc) = match self {
-            Self::IllegalChar => (
-                "Illegal Character Detected",
-                "The input contains a Non-ASCII character.".to_string(),
-            ),
-            Self::NonUsableChar(c) => (
-                "Unexpected Character Detected",
-                format!(
-                    "The input contains the following ASCII character which is not supported: '{}'.",
-                    *c as char
-                ),
-            ),
-            Self::NoSuffix(prefix) => (
-                "Invalid Format",
-                format!(
-                    "No numeric value found after the following prefix character: {}, which is invalid G-Code.",
-                    *prefix as char
-                ),
-            ),
-            Self::ParseSuffix(prefix) => (
-                "Numeric Parsing Error",
-                format!(
-                    "A numeric value failed to parse that is prefixed by {}.",
-                    *prefix as char
-                ),
-            ),
-        };
-
-        Description::new(title, desc)
-    }
-}
-
-impl Display for LexerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match self {
-            Self::IllegalChar => write!(
-                f,
-                "Illegal Character Detected:{RESET}\n\t\tThe input contains a Non-ASCII character."
-            ),
-            Self::NonUsableChar(c) => write!(
-                f,
-                "Unexpected Character Detected:{RESET}\n\t\tThe input contains the following ASCII character which is not supported: '{RED}{}{RESET}'.",
-                *c as char
-            ),
-            Self::NoSuffix(prefix) => write!(
-                f,
-                "Invalid Format:{RESET}\n\t\tNo numeric value found after the following prefix character: {RED}{}{RESET}, which is invalid G-Code.",
-                *prefix as char
-            ),
-            Self::ParseSuffix(prefix) => write!(
-                f,
-                "Numeric Parsing Error:{RESET}\n\t\tA numeric value failed to parse that is prefixed by {RED}{}{RESET}.",
-                *prefix as char
-            ),
-        }
-    }
 }
 
 /// Suffix parsing helper.

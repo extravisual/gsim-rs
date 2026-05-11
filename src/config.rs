@@ -1,7 +1,7 @@
 //! # GSim Configuration
 //!
-//! This module is responsible for parsing the **command line arguments**,
-//! and preparing them for the program.
+//! Command line arguments parser.
+//! Extracts the first argument as **G-Code source** file path.
 
 use clap::Parser;
 

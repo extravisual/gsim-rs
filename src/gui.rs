@@ -11,8 +11,7 @@ use winit::{
 use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 
 use crate::{
-    Command, Signal,
-    app::View,
+    Command, Signal, View,
     geometry::{FixedVertexConfig, Uniforms, Vertex, Vertices},
     parser::Point,
     tool::Tool,

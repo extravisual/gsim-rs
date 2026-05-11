@@ -1,14 +1,9 @@
 //! # Source
 //!
-//! This module is responsible for reading in **raw G-Code text**,
-//! and preparing it for the [`Lexer`](crate::lexer) to be tokenized.
+//! Reads in **raw G-Code text**,
+//! and prepares it for the [`Lexer`](crate::lexer) to be tokenized.
 
-use std::{fmt::Display, str::Lines};
-
-use crate::{
-    describe::{Describe, Description},
-    error::RESET,
-};
+use std::str::Lines;
 
 /// Represents a sanitized line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,9 +29,10 @@ pub struct Source {
 impl Source {
     /// Constructs a new [`Source`] by reading a file at `path`.
     ///
-    /// Returns a [`SourceError`] on failure to *read the raw file*.
-    ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
+    ///
+    /// # Errors
+    /// Returns a [`SourceError`] on failure to *read the raw file*.
     pub fn from_file(path: &str) -> Result<Self, SourceError> {
         let data = std::fs::read_to_string(path)?;
 
@@ -83,7 +79,7 @@ impl Source {
             .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%'));
 
         Self {
-            lines: filtered.map(|line| Line(line)).collect(),
+            lines: filtered.map(Line).collect(),
             index: 0,
         }
     }
@@ -105,7 +101,7 @@ impl Source {
 impl Iterator for Source {
     type Item = Line;
 
-    /// **Optionally** and returns a copy of the next [`Line`].
+    /// **Optionally** returns a copy of the next [`Line`].
     /// **Does not** remove the returned [`Line`] to support reloading the [`Source`].
     fn next(&mut self) -> Option<Self::Item> {
         let line = self.lines.get(self.index)?;
@@ -116,41 +112,18 @@ impl Iterator for Source {
 }
 
 /// Possible errors that can happen during [`Source`] construction.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SourceError {
-    IO(std::io::Error),
-}
-
-impl std::error::Error for SourceError {}
-
-impl Describe for SourceError {
-    fn describe(&self) -> Description {
-        match self {
-            SourceError::IO(error) => Description::new("File Error Detected", error.to_string()),
-        }
-    }
-}
-
-impl Display for SourceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SourceError::IO(error) => write!(f, "File Error Detected:{RESET}\n\t\t{error}"),
-        }
-    }
-}
-
-impl From<std::io::Error> for SourceError {
-    fn from(e: std::io::Error) -> Self {
-        Self::IO(e)
-    }
+    #[error("file read failed")]
+    IO(#[from] std::io::Error),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const TESTFILE: &'static str = "source_test.nc";
-    const TESTCODE: &'static str = "
+    const TESTFILE: &str = "source_test.nc";
+    const TESTCODE: &str = "
         ; ============================================================
         ; Standard GCode Example — 3-Axis CNC Mill
         ; Operation:  Pocket + Contour on a 100mm x 100mm workpiece

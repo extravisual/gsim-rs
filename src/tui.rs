@@ -1,4 +1,15 @@
-use clap::Parser as cli;
+//! # Tui
+//!
+//! This module is responsible for cooking up a **terminal user interface** using
+//! [`RataTui`](ratatui) and houses its render loop and event handling.
+//!
+//! The `Tui` is drawn to [`Stdout`] and uses [`Crossterm`](CrosstermBackend) as its backend.
+//!
+//! The render loop is driven by [`Signal`]s from the [`Gui`] thread,
+//! which receive [`Command`]s in response from the [`Tui`] thread,
+//! communicating user input and state changes.
+
+use clap::Parser as clap;
 use ratatui::{
     Frame, Terminal,
     crossterm::{
@@ -54,8 +65,6 @@ pub struct Tui {
     signal: Receiver<Signal>,
     /// Event proxy for sending [`Command`]s to [`Gui`].
     proxy: EventLoopProxy<Command>,
-    /// Max travels of the machine.
-    max_travels: Point,
     /// Current selected [`View`].
     view: View,
     /// Single step through code blocks.
@@ -100,7 +109,6 @@ impl Tui {
         Ok(Self {
             signal,
             proxy,
-            max_travels,
             view: View::default(),
             single: false,
             interpreter: Interpreter::new(
@@ -132,25 +140,16 @@ impl Tui {
             Err(e) => return self.proxy.send_event(Command::Stop(Some(e))).unwrap(),
         };
 
-        let res = self.start_loop(&mut terminal);
+        let mut res = self.start_loop(&mut terminal);
 
-        // on failure to restore terminal, tell main thread to stop ONLY if it hasn't already
-        // signalled to stop this thread
+        // prioritize terminal error
         if let Err(e) = restore_terminal(terminal) {
-            if let Some(Signal::Stop) = self.last_signal {
-                // main thread already signalled to stop
-                ()
-            } else {
-                return self.proxy.send_event(Command::Stop(Some(e))).unwrap();
-            }
+            res = Err(e)
         };
 
-        if let Err(e) = res {
-            if let Some(Signal::Stop) = self.last_signal {
-                ()
-            } else {
-                return self.proxy.send_event(Command::Stop(Some(e))).unwrap();
-            }
+        match self.last_signal {
+            Some(Signal::Stop) => {} // main thread already signalled to stop
+            _ => self.proxy.send_event(Command::Stop(res.err())).unwrap(),
         }
     }
 
@@ -245,6 +244,7 @@ impl Tui {
                             proceed = self.execute();
                         }
 
+                        // TODO verify interrupt order
                         KeyCode::Enter => match self.interrupt {
                             Some(Interrupt::End) => self.reload(),
                             Some(Interrupt::Start) => {
@@ -309,11 +309,11 @@ impl Tui {
                             false
                         }
                         Some(MCode::OptionalStop) => {
-                            self.interrupt = Some(Interrupt::Stop);
+                            self.interrupt = Some(Interrupt::OptionalStop);
                             false
                         }
                         Some(MCode::End) => {
-                            self.interrupt = Some(Interrupt::Stop);
+                            self.interrupt = Some(Interrupt::End);
                             false
                         }
                         Some(_) => true,
@@ -372,6 +372,7 @@ impl Tui {
         frame.render_widget(self.title_widget(), bottom_chunks[0]);
         frame.render_widget(self.keys_widget(), bottom_chunks[1]);
 
+        // TODO add dynamic boxing to error with describe trait
         // present error, if any
         // if let Some(e) = &self.error {
         //     let popup = Paragraph::new(e.describe().desc().to_string()).block(
@@ -430,7 +431,7 @@ impl Tui {
                         .add_modifier(Modifier::BOLD),
                 ));
                 for gcode in &summary.gcodes {
-                    lines.push(Line::styled(gcode, Style::default()));
+                    lines.push(Line::styled(gcode.to_string(), Style::default()));
                 }
                 lines.push(Line::from(""));
             };
@@ -461,7 +462,7 @@ impl Tui {
                         .add_modifier(Modifier::BOLD),
                 ));
                 for code in &summary.codes {
-                    lines.push(Line::styled(code, Style::default()));
+                    lines.push(Line::styled(code.to_string(), Style::default()));
                 }
             };
 

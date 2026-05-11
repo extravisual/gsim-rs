@@ -1,37 +1,31 @@
 //! # Interpreter
 //!
-//! This module executes [`CodeBlock`]s (represented as [`Parser`])
-//! on a [`Machine`] by accessing its public API.
+//! Executes [`CodeBlock`]s (represented as [`Parser`])
+//! on a [`Machine`], by accessing its public API.
 
-use std::{fmt::Display, io};
-
+#[allow(unused_imports)]
 use crate::{
-    describe::{Describe, Description},
-    error::{RED, RESET},
     lexer::Prefix,
     machine::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
         Positioning, ReturnLevel, Unit,
     },
-    parser::{Code, Codes, GCode, MCode, Parser, ParserError, Plane, Point},
+    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Plane, Point},
 };
 
-/// Represents a consumed [`CodeBlock`](crate::parser::CodeBlock).
-/// Contains all the information required by the [`App`](crate::app::App) to render the new [`Machine`] state.
+/// Represents a summary consumed [`CodeBlock`].
+/// Contains all the information required by the [`Tui`](crate::tui::Tui)
+/// to render the new [`Machine`] state.
 #[derive(Debug, Clone)]
 pub struct BlockSummary {
-    /// Textual representations of all the [`GCode`]s in the block.
-    pub gcodes: Vec<String>,
-    /// [`MCode`] in the block.
+    /// Parsed [`GCode`]s from the block.
+    pub gcodes: Vec<GCode>,
+    /// Parsed [`MCode`] from the block.
     pub mcode: Option<MCode>,
-    /// Textual representations of all the [`Code`]s in the block.
-    pub codes: Vec<String>,
-    /// Captures any motions and position changes.
+    /// Parsed [`Code`]s from the block.
+    pub codes: Vec<Code>,
+    /// Captures any [`Motion`] and position changes.
     pub motion: Option<MotionSummary>,
-    /// Position of the machine before block execution.
-    pub org_pos: Point,
-    /// Position of the machine after block execution.
-    pub new_pos: Point,
 }
 
 /// Represents an instance of [`Interpreter`](crate::interpreter).
@@ -42,7 +36,7 @@ pub struct Interpreter {
 
 impl Interpreter {
     /// Constructs an [`Interpreter`] from a provided [`Parser`] and [`Machine`],
-    /// ready to execute the code on the machine.
+    /// ready to execute the code on the machine on demand.
     pub fn new(parser: Parser, machine: Machine) -> Self {
         Self { parser, machine }
     }
@@ -50,13 +44,12 @@ impl Interpreter {
     /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
     ///
     /// Returns the summary of changes during execution as [`BlockSummary`],
-    /// or [`None`] on exhaustion of [`CodeBlock`](crate::parser::CodeBlock)s.
+    /// or [`None`] on exhaustion of [`CodeBlock`]s.
     ///
-    /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
+    /// Returns [`InterpreterError`] on failure.
     pub fn execute(&mut self) -> Result<Option<BlockSummary>, InterpreterError> {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
-        let org_pos = machine.pos().clone();
         let mut motion = None;
 
         let mut block = match parser.next() {
@@ -64,9 +57,11 @@ impl Interpreter {
             None => return Ok(None),
         };
 
-        let mut gcode_lines = vec![];
+        let mcode = block.mcode();
+
+        let mut gcodes = vec![];
         for gcode in block.gcodes() {
-            gcode_lines.push(gcode.to_string());
+            gcodes.push(gcode);
             match gcode {
                 GCode::RapidMove(pos) => motion = Some(machine.rapid_move(pos)?),
 
@@ -86,10 +81,7 @@ impl Interpreter {
                     )?)
                 }
 
-                GCode::Dwell(p) => {
-                    let duration = std::time::Duration::from_millis((p * 1000.0) as u64);
-                    std::thread::sleep(duration);
-                }
+                GCode::Dwell(_) => {} // does not actually dwell, just prints description in tui
 
                 GCode::XYPlane => machine.set_plane(Plane::XY),
 
@@ -120,7 +112,6 @@ impl Interpreter {
                     machine.max_travels().x() / 2.0,
                     machine.max_travels().y() / 2.0,
                     machine.max_travels().z() / 2.0,
-                    // 0.0,
                 )),
 
                 GCode::CancelCanned => machine.cancel_canned(),
@@ -139,21 +130,19 @@ impl Interpreter {
             }
         }
 
-        if let Some(mcode) = block.mcode() {
+        if let Some(mcode) = &mcode {
             match mcode {
-                MCode::Stop => Self::wait()?,
+                MCode::Stop | MCode::OptionalStop => {}
 
-                MCode::OptionalStop => Self::wait()?,
-
-                MCode::SpindleFwd(s) => machine.spindle_on(CircularDirection::Clockwise, s)?,
+                MCode::SpindleFwd(s) => machine.spindle_on(CircularDirection::Clockwise, *s)?,
 
                 MCode::SpindleRev(s) => {
-                    machine.spindle_on(CircularDirection::CounterClockwise, s)?
+                    machine.spindle_on(CircularDirection::CounterClockwise, *s)?
                 }
 
                 MCode::SpindleStop => machine.spindle_off(),
 
-                MCode::ToolChange(t) => machine.tool_change(t)?,
+                MCode::ToolChange(t) => machine.tool_change(*t)?,
 
                 MCode::CoolantOn => machine.set_coolant(true),
 
@@ -163,18 +152,14 @@ impl Interpreter {
             }
         }
 
-        // for storing any coord codes and parsing them altogether
-        let mut excess_codes = Codes::new();
-        let mut excess = false; // for deciding later if to parse or not
-        let mut code_lines = vec![];
+        let mut excess_codes = Codes::new(); // storing any coord codes for parsing them altogether
+        let mut excess = false; // flag for deciding later if to parse or not
+        let mut codes = vec![];
 
         for code in block.codes() {
             // display is only implemented for variants that will not cause any errors
             // and which do not fall through to excess codes
-            let code_line = code.to_string();
-            if !code_line.is_empty() {
-                code_lines.push(code_line);
-            }
+            codes.push(code);
 
             match code {
                 Code::G(_) => unreachable!("The parser will not emit G code with other codes."),
@@ -214,48 +199,32 @@ impl Interpreter {
             // that is, a block will not have two interpolations,
             // because everyblock needs x, y or z, and there are no duplicates.
             //
-            // these excess moves will be labelled as gcode lines,
+            // these excess moves will be labelled as gcodes,
             // because these are basically gcodes lines with the 'G' code omitted as those are
             // modal.
             motion = Some(match machine.motion() {
                 Motion::Rapid => {
                     let pos = excess_codes.take_partial_point();
-                    gcode_lines.push(GCode::RapidMove(pos).to_string());
+                    gcodes.push(GCode::RapidMove(pos));
                     machine.rapid_move(pos)?
                 }
 
                 // feed would be set from the for loop, if provided
                 Motion::Feed => {
                     let pos = excess_codes.take_partial_point();
-                    gcode_lines.push(
-                        GCode::FeedMove {
-                            pos: pos.clone(),
-                            feed: None,
-                        }
-                        .to_string(),
-                    );
+                    gcodes.push(GCode::FeedMove { pos, feed: None });
                     machine.feed_move(pos, None)?
                 }
 
                 Motion::Arc(dir) => {
                     let (pos, method, feed) = excess_codes.take_circular()?;
                     match dir {
-                        CircularDirection::Clockwise => gcode_lines.push(
-                            GCode::CWArcMove {
-                                pos: pos.clone(),
-                                method: method.clone(),
-                                feed,
-                            }
-                            .to_string(),
-                        ),
-                        CircularDirection::CounterClockwise => gcode_lines.push(
-                            GCode::CCWArcMove {
-                                pos: pos.clone(),
-                                method: method.clone(),
-                                feed,
-                            }
-                            .to_string(),
-                        ),
+                        CircularDirection::Clockwise => {
+                            gcodes.push(GCode::CWArcMove { pos, method, feed })
+                        }
+                        CircularDirection::CounterClockwise => {
+                            gcodes.push(GCode::CCWArcMove { pos, method, feed })
+                        }
                     };
                     machine.arc_move(pos, method, *dir, feed)?
                 }
@@ -268,24 +237,11 @@ impl Interpreter {
         }
 
         Ok(Some(BlockSummary {
-            gcodes: gcode_lines,
-            mcode: block.mcode(),
-            codes: code_lines,
+            gcodes,
+            mcode,
+            codes,
             motion,
-            org_pos,
-            new_pos: machine.pos().clone(),
         }))
-    }
-
-    /// `Stop` M-Code helper.
-    /// Waits for the user to press 'Enter' to continue.
-    fn wait() -> Result<(), io::Error> {
-        println!("Program stopped.\nPress Enter to continue...");
-
-        match io::stdin().read_line(&mut String::new()) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        }
     }
 
     /// Reloads the [`Interpreter`] to start from beginning of the [`Parser`].
@@ -294,7 +250,8 @@ impl Interpreter {
         self.machine.reset();
     }
 
-    /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).
+    /// **Optionally** returns the next [`Line`](crate::source::Line)
+    /// as a string slice from the [`Source`](crate::source::Source).
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.parser.get_line(index)
     }
@@ -306,79 +263,15 @@ impl Interpreter {
 }
 
 /// Possible errors that can happen during executing the code.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum InterpreterError {
-    File(io::Error),
-    Machine(MachineError),
-    Parser(ParserError),
+    /// Changing [`Machine`] state failed.
+    #[error("machien rejected the last block")]
+    Machine(#[from] MachineError),
+    /// Parsing the next [`CodeBlock`] failed.
+    #[error("parsing block failed")]
+    Parser(#[from] ParserError),
     /// At least one code from a code block exists that was not consumed.
+    #[error("unconsumed prefix: '{}'", *.0 as char)]
     ExcessCode(Prefix),
-}
-
-impl std::error::Error for InterpreterError {}
-
-impl From<io::Error> for InterpreterError {
-    fn from(e: io::Error) -> Self {
-        Self::File(e)
-    }
-}
-
-impl From<MachineError> for InterpreterError {
-    fn from(e: MachineError) -> Self {
-        Self::Machine(e)
-    }
-}
-
-impl From<ParserError> for InterpreterError {
-    fn from(e: ParserError) -> Self {
-        Self::Parser(e)
-    }
-}
-
-impl Describe for InterpreterError {
-    fn describe(&self) -> crate::describe::Description {
-        let (title, desc) = match self {
-            Self::File(_) => (
-                "File Access Error",
-                "Error encountered while trying to read input from user.".to_string(),
-            ),
-
-            Self::ExcessCode(c) => (
-                "Excess Code Detected",
-                format!(
-                    "The code block contains the following code, which could not be consumed and may be redundant: {}.",
-                    *c as char
-                ),
-            ),
-
-            // no need to format new error,
-            // just print machine & parser error as interpreter error which is formatted
-            Self::Machine(e) => return e.describe(),
-            Self::Parser(e) => return e.describe(),
-        };
-
-        Description::new(title, desc)
-    }
-}
-
-impl Display for InterpreterError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match self {
-            Self::File(_) => write!(
-                f,
-                "File Access Error:{RESET}\n\t\tError encountered while trying to read input from user."
-            ),
-
-            Self::ExcessCode(c) => write!(
-                f,
-                "Excess Code Detected:{RESET}\n\t\tThe code block contains the following code, which could not be consumed and may be redundant: {RED}{}{RESET}.",
-                *c as char
-            ),
-
-            // no need to format new error,
-            // just print machine & parser error as interpreter error which is formatted
-            Self::Machine(e) => write!(f, "{e}"),
-            Self::Parser(e) => write!(f, "{e}"),
-        }
-    }
 }
