@@ -303,7 +303,7 @@ impl Arc {
     /// and **positive** for [`CircularDirection::CounterClockwise`].
     ///
     /// # Reference:
-    /// [Stackoverflow]( https://stackoverflow.com/questions/2994669/how-do-i-calculate-arc-angle-between-two-points-on-a-circle this formula always gets us the sweep by the minor arc)
+    /// [Stackoverflow]( https://stackoverflow.com/questions/2994669/how-do-i-calculate-arc-angle-between-two-points-on-a-circle)
     fn sweep(
         to_start: PlanarPoint,
         to_end: PlanarPoint,

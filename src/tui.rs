@@ -1,7 +1,7 @@
 //! # Tui
 //!
-//! This module is responsible for cooking up a **terminal user interface** using
-//! [`RataTui`](ratatui) and houses its render loop and event handling.
+//! Cooks up a **terminal user interface** using [`RataTui`](ratatui),
+//! and houses its render loop and event handling.
 //!
 //! The `Tui` is drawn to [`Stdout`] and uses [`Crossterm`](CrosstermBackend) as its backend.
 //!
@@ -23,6 +23,7 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph},
 };
 use std::{
+    error::Error,
     io::Stdout,
     sync::mpsc::{Receiver, TryRecvError},
     time::Duration,
@@ -31,20 +32,21 @@ use winit::event_loop::EventLoopProxy;
 
 #[allow(unused_imports)]
 use crate::{
-    Command, Signal,
+    Command, Signal, View,
     config::Config,
     gui::Gui,
+    interpreter::InterpreterError,
     interpreter::{BlockSummary, Interpreter},
     lexer::Lexer,
+    machine::{CircularDirection, FeedMode, Motion, Positioning},
     machine::{Machine, Unit},
+    parser::Plane,
     parser::{CodeBlock, MCode, Parser, Point},
     source::Source,
 };
-use crate::{
-    View,
-    machine::{CircularDirection, FeedMode, Motion, Positioning},
-    parser::Plane,
-};
+
+/// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
+const MAX_PREVIEW_AHEAD: usize = 10;
 
 /// Represents the types of program cycle interruptions.
 /// These interruptions need user input to be removed and resume cycle.
@@ -59,7 +61,7 @@ pub enum Interrupt {
     End,
 }
 
-/// Represents the current state of the Tui.
+/// Represents the current state of the [`Tui`](crate::tui).
 pub struct Tui {
     /// Receiver end of the channel for [`Signal`] from [`Gui`].
     signal: Receiver<Signal>,
@@ -84,13 +86,13 @@ pub struct Tui {
     summaries: Vec<BlockSummary>,
     /// Previously received [`Signal`] from [`Gui`].
     last_signal: Option<Signal>,
-    /// Error during execution is stored briefly to render the error in the Tui before exiting to
-    /// the terminal.
-    error: Option<anyhow::Error>,
+    /// Error that is a direct result of [`executing`](Interpreter::execute) a [`CodeBlock`].
+    /// This is stored for rendering error to the Tui before exiting to the shell.
+    error: Option<InterpreterError>,
 }
 
 impl Tui {
-    /// Constructs a [`Tui`] and loads the [`Source`] from file at input path.
+    /// Constructs a new [`Tui`] and loads the [`Source`] from file at input path.
     ///
     /// The [`Tui::view`] is set to [`View::default`],
     /// [`Tui::single`] block execution is set to `false`,
@@ -124,7 +126,7 @@ impl Tui {
         })
     }
 
-    /// Starts [`Tui`] execution by executing each the G-Code line and managing the terminal state.
+    /// Starts [`Tui`] execution by executing each G-Code line and managing the terminal state.
     ///
     /// The [`Tui`] thread cannot terminate the program now, just by returning an `Error`.
     /// A [`Command::Stop`], with an optional [`Error`](anyhow::Error),
@@ -291,7 +293,7 @@ impl Tui {
             None => match self.interpreter.execute() {
                 Ok(res) => res, // res can be a new summary or None for exhaustion
                 Err(e) => {
-                    self.error = Some(e.into());
+                    self.error = Some(e);
                     return false;
                 }
             },
@@ -372,19 +374,26 @@ impl Tui {
         frame.render_widget(self.title_widget(), bottom_chunks[0]);
         frame.render_widget(self.keys_widget(), bottom_chunks[1]);
 
-        // TODO add dynamic boxing to error with describe trait
         // present error, if any
-        // if let Some(e) = &self.error {
-        //     let popup = Paragraph::new(e.describe().desc().to_string()).block(
-        //         Block::default()
-        //             .title(e.describe().title().to_string())
-        //             .borders(Borders::ALL)
-        //             .style(Style::default().bg(Color::DarkGray)),
-        //     );
-        //
-        //     let area = get_centered(60, 25, frame.area());
-        //     frame.render_widget(popup, area);
-        // }
+        if let Some(e) = &self.error {
+            let mut error_lines = vec![e.to_string()];
+            let mut source = e.source();
+
+            while let Some(cause) = source {
+                error_lines.push(format!("caused by: {cause}"));
+                source = cause.source();
+            }
+
+            let popup = Paragraph::new(error_lines.join("\n")).block(
+                Block::default()
+                    .title("Alarm")
+                    .borders(Borders::ALL)
+                    .style(Style::default().bg(Color::DarkGray)),
+            );
+
+            let area = get_centered(60, 25, frame.area());
+            frame.render_widget(popup, area);
+        }
     }
 
     /// Generates a styled [`Paragraph`] using the [`BlockSummary`] for current block.
@@ -477,7 +486,9 @@ impl Tui {
 
         let mut current = self.current.saturating_sub(2);
 
-        while let Some(line) = self.interpreter.get_line(current) {
+        while let Some(line) = self.interpreter.get_line(current)
+            && current < self.current + MAX_PREVIEW_AHEAD
+        {
             if current == self.current.saturating_sub(1)
                 && !matches!(self.interrupt, Some(Interrupt::Start))
             {

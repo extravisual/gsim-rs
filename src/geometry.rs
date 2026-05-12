@@ -19,7 +19,7 @@ const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
 const ORIGIN_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
 const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.8;
 
-const MACHINE_BOUNDARY_COLOR: [f32; 3] = [0.69, 0.69, 0.69];
+const MACHINE_BOUNDARY_COLOR: [f32; 3] = [0.69, 0.69, 0.69]; // noice
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.05, 0.05];
 const FEED_MOVE_COLOR: [f32; 3] = [0.1, 1.0, 0.1];
 const GRID_COLOR: [f32; 3] = [0.1, 0.1, 0.1];
@@ -30,6 +30,37 @@ const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
 const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 // units travelled per frame
 const SPEED: f64 = 5.0;
+
+#[derive(Clone, Copy)]
+pub struct StaticVertices {
+    machine_boundary: bool,
+    grid: bool,
+    origin: bool,
+}
+
+impl Default for StaticVertices {
+    fn default() -> Self {
+        Self {
+            machine_boundary: SHOW_MACHINE_BOUNDARY,
+            grid: SHOW_GRID,
+            origin: SHOW_ORIGIN,
+        }
+    }
+}
+
+impl StaticVertices {
+    pub fn toggle_machine_boundary(&mut self) {
+        self.machine_boundary = !self.machine_boundary
+    }
+
+    pub fn toggle_grid(&mut self) {
+        self.grid = !self.grid
+    }
+
+    pub fn toggle_origin(&mut self) {
+        self.origin = !self.origin
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -287,7 +318,7 @@ pub struct Uniforms {
 }
 
 impl Uniforms {
-    pub fn new(window_size: PhysicalSize<u32>, max_travels: &Point) -> Self {
+    pub fn new(window_size: PhysicalSize<u32>, max_travels: Point) -> Self {
         let window_size = [window_size.width as f32, window_size.height as f32];
         let max_travels = [
             max_travels.x() as f32,

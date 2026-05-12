@@ -266,7 +266,7 @@ impl Interpreter {
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub enum InterpreterError {
     /// Changing [`Machine`] state failed.
-    #[error("machien rejected the last block")]
+    #[error("machine rejected the last block")]
     Machine(#[from] MachineError),
     /// Parsing the next [`CodeBlock`] failed.
     #[error("parsing block failed")]

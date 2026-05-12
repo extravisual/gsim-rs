@@ -1,14 +1,13 @@
-pub mod config;
-pub mod describe;
-pub mod geometry;
-pub mod gui;
+mod config;
+mod geometry;
+mod gui;
 mod interpreter;
 pub mod lexer;
 mod machine;
 pub mod parser;
 pub mod source;
-pub mod tool;
-pub mod tui;
+mod tool;
+mod tui;
 
 use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 
@@ -60,7 +59,7 @@ unsafe impl bytemuck::Pod for View {}
 pub fn run() -> anyhow::Result<()> {
     let (sender, receiver) = std::sync::mpsc::channel();
 
-    let gui = Gui::new(sender, MACHINE_TRAVELS);
+    let gui = Gui::build(sender, MACHINE_TRAVELS)?;
     let tui = Tui::build(receiver, MACHINE_TRAVELS, gui.create_proxy())?;
 
     let tui = std::thread::Builder::new()

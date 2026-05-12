@@ -29,7 +29,6 @@ G43 H1                   ; Apply tool length offset #1
 M3 S12000                ; Spindle ON, clockwise, 12000 RPM
 M8                       ; Coolant ON
 
-G54
 G0 Z10.0                 ; Safe Z clearance above work
 
 ; ============================================================
