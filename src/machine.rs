@@ -54,7 +54,7 @@ pub enum Motion {
     Arc(CircularDirection),
 }
 
-/// Possible Arc Types.
+/// Possible Arc types.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ArcType {
     Major,

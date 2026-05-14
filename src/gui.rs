@@ -8,13 +8,15 @@
 #[allow(unused_imports)]
 use crate::{
     Command, Signal, View,
-    geometry::StaticVertices,
-    geometry::{Uniforms, Vertex, Vertices},
+    geometry::{LineInstance, LineInstances, StaticConfig, Tool, Uniforms},
+    machine::HOME_POS,
     parser::Point,
-    tool::Tool,
     tui::Tui,
 };
-use std::sync::{Arc, mpsc::Sender};
+use std::{
+    mem::size_of,
+    sync::{Arc, mpsc::Sender},
+};
 use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 use winit::{
     application::ApplicationHandler,
@@ -25,8 +27,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
-/// Maximum number of [`Vertex`] allowed to be used in [`wgpu::Buffer`].
-const MAX_VERTICES: u64 = 100_000;
+/// Maximum number of [`LineInstance`]s allowed to be used in the [`Graphics::lines_buffer`].
+const MAX_INSTANCES: u64 = 100_000;
 
 /// Represents the current state of the [`Gui`](crate::gui), owned by the **main thread**.
 pub struct Gui {
@@ -40,8 +42,8 @@ pub struct Gui {
     graphics: Option<Graphics>,
     /// Stores any errors that occur during [`Graphics::render`] call.
     error: Option<anyhow::Error>,
-    /// Configuration for static [`LineVertex`]s which are toggled by the [`Tui`].
-    static_vertices: StaticVertices,
+    /// Configuration for static [`LineInstance`]s which are toggled by the [`Tui`].
+    static_config: StaticConfig,
     /// [`winit`] event loop that can receive user events in form of [`Command`]s.
     /// Consumed on [`Gui::run`] call.
     event_loop: Option<EventLoop<Command>>,
@@ -65,7 +67,7 @@ impl Gui {
             last_command: None,
             graphics: None,
             error: None,
-            static_vertices: StaticVertices::default(),
+            static_config: StaticConfig::default(),
             event_loop: Some(event_loop),
         })
     }
@@ -134,7 +136,7 @@ impl ApplicationHandler<Command> for Gui {
             event_loop.owned_display_handle(),
             Arc::new(window),
             self.max_travels,
-            self.static_vertices,
+            self.static_config,
         )) {
             Ok(g) => g,
             Err(e) => {
@@ -201,9 +203,9 @@ impl ApplicationHandler<Command> for Gui {
 
         match &event {
             Command::Render(summary) => {
-                let vertices = Vertices::new(*summary);
+                let instances = LineInstances::new(*summary);
 
-                graphics.add(vertices);
+                graphics.add(instances);
                 graphics.window.request_redraw();
             }
 
@@ -213,20 +215,20 @@ impl ApplicationHandler<Command> for Gui {
             }
 
             Command::ToggleMachineBoundary => {
-                self.static_vertices.toggle_machine_boundary();
-                graphics.update_fixed(&self.max_travels, self.fixed_config);
+                self.static_config.toggle_machine_boundary();
+                graphics.update_statics(self.max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
             Command::ToggleGrid => {
-                self.static_vertices.toggle_grid();
-                graphics.update_fixed(&self.max_travels, self.fixed_config);
+                self.static_config.toggle_grid();
+                graphics.update_statics(self.max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
             Command::ToggleOrigin => {
-                self.static_vertices.toggle_origin();
-                graphics.update_fixed(&self.max_travels, self.fixed_config);
+                self.static_config.toggle_origin();
+                graphics.update_statics(self.max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
@@ -262,31 +264,32 @@ pub struct Graphics {
     /// Description of a [`Surface`](wgpu::Surface).
     config: wgpu::SurfaceConfiguration,
 
-    /// Pipeline for rendering [`LineVertex`].
+    /// Pipeline for rendering [`LineInstance`].
     lines_pipeline: wgpu::RenderPipeline,
-    /// Vertex buffer configured to hold [`MAX_VERTICES`] number of [`LineVertex`]s.
-    /// [`Self::static_count`] number of static vertices hold the start of this buffer,
+    /// Vertex buffer configured to hold [`MAX_INSTANCES`] number of [`LineInstance`]s.
+    /// [`Self::static_count`] number of static instances hold the start of this buffer,
     /// which makes upto [`Self::static_offset`] in memory.
     lines_buffer: wgpu::Buffer,
-    /// Total number of [`LineVertex`] in [`Self::lines_buffer`],
-    /// including static and toolpath vertices.
+    /// Total number of [`LineInstance`]s in [`Self::lines_buffer`],
+    /// including both static and toolpath representing instances.
     lines_count: u32,
-    /// Memory offset to write next toolpath vertex to.
+    /// Memory offset to write next toolpath [`LineInstance`] to.
     lines_offset: u64,
-    /// Number of static vertices (grid, origin, machine boundary).
+    /// Number of static [`LineInstance`]s (grid, origin, machine boundary) at the start of
+    /// [`Self::lines_buffer`]..
     static_count: u32,
-    /// Memory offset to start toolpath vertices from in [`Self::lines_buffer`].
+    /// Memory offset to start toolpath [`LineInstance`]s from in [`Self::lines_buffer`].
     static_offset: u64,
 
-    /// Pipeline for rendering [`ToolVertex`].
+    /// Pipeline for rendering the [`ToolInstance`].
     tool_pipeline: wgpu::RenderPipeline,
-    /// Vertex buffer configured to hold a single [`ToolVertex`].
+    /// Vertex buffer configured to hold a single [`ToolInstance`].
     tool_buffer: wgpu::Buffer,
 
-    /// [`LineVertex`]s left to be drawn to fulfil the latest [`Command::Render`] from [`Tui`].
-    current_vertices: Option<LineVertices>,
+    /// [`LineInstance`]s left to be drawn to fulfil the latest [`Command::Render`] from [`Tui`].
+    current_instances: Option<LineInstances>,
 
-    /// Constant data shared across all the [`LineVertex`]s and [`ToolVertex`].
+    /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
     /// Read-only buffer containing [`Uniforms`].
     uniform_buffer: wgpu::Buffer,
@@ -300,11 +303,20 @@ pub struct Graphics {
 }
 
 impl Graphics {
+    /// Constructs a new [`Graphics`] by initializing all GPU resources, including:
+    /// - [`Uniforms`] buffer and bind group, to pass constant data to the [`ToolInstance`] and all
+    /// [`LineInstance`]s.
+    /// - [`LineInstance`] buffer and pipeline. Writes the static instances,
+    /// corresponding to the supplied [`StaticConfig`], to the beginning of [`Self::lines_buffer`].
+    /// - [`ToolInstance`] buffer and pipeline. Creates a [`ToolInstance`],
+    /// with the tool at [`HOME_POS`], and writes it to [`Self::tool_buffer`].
+    ///
+    /// Returns [`Error`](anyhow::Error) on failure to create any of the GPU resources.
     async fn build(
         handle: OwnedDisplayHandle,
         window: Arc<Window>,
         max_travels: Point,
-        static_vertices: StaticVertices,
+        static_config: StaticConfig,
     ) -> anyhow::Result<Self> {
         let window_size = window.inner_size();
 
@@ -416,7 +428,7 @@ impl Graphics {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Vertex::desc()],
+                buffers: &[LineInstance::buffer_layout()],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -447,16 +459,16 @@ impl Graphics {
             cache: None,
         });
 
-        let static_vertices = Vertex::fixed(max_travels, fixed_config);
+        let static_instances = LineInstance::statics(max_travels, static_config);
 
         let lines_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Lines"),
-            size: MAX_VERTICES * std::mem::size_of::<Vertex>() as u64,
+            size: MAX_INSTANCES * size_of::<LineInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        queue.write_buffer(&lines_buffer, 0, bytemuck::cast_slice(&static_vertices));
+        queue.write_buffer(&lines_buffer, 0, bytemuck::cast_slice(&static_instances));
 
         // ######## Tool Vertex ########
         //
@@ -509,12 +521,12 @@ impl Graphics {
 
         let tool_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Tool"),
-            size: std::mem::size_of::<Tool>() as u64,
+            size: size_of::<Tool>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let tool = Tool::at_pos([0.0, 0.0, 0.0]);
+        let tool = Tool::at_point(HOME_POS);
         queue.write_buffer(&tool_buffer, 0, bytemuck::cast_slice(&[tool]));
         queue.submit([]);
 
@@ -525,13 +537,13 @@ impl Graphics {
             config,
             lines_pipeline,
             lines_buffer,
-            lines_count: static_vertices.len() as u32,
-            lines_offset: bytemuck::cast_slice::<Vertex, u8>(&static_vertices).len() as u64,
-            static_count: static_vertices.len() as u32,
-            static_offset: bytemuck::cast_slice::<Vertex, u8>(&static_vertices).len() as u64,
+            lines_count: static_instances.len() as u32,
+            lines_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
+            static_count: static_instances.len() as u32,
+            static_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
             tool_pipeline,
             tool_buffer,
-            current_vertices: None,
+            current_instances: None,
             uniforms,
             uniform_buffer,
             uniform_bind_group,
@@ -540,6 +552,7 @@ impl Graphics {
         })
     }
 
+    /// Reconfigures [`Self::surface`], updates & rewrites [`Self::uniforms`] to use the new provided size.
     fn resize(&mut self, new_size: PhysicalSize<u32>) {
         let width = new_size.width;
         let height = new_size.height;
@@ -548,67 +561,90 @@ impl Graphics {
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
-            self.configured = true
-        }
+            self.configured = true;
 
-        self.uniforms.resize(new_size);
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniforms]),
-        );
+            self.uniforms.resize(new_size);
+            self.queue.write_buffer(
+                &self.uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[self.uniforms]),
+            );
+        }
     }
 
-    // add new vertices of a move to the buffer
-    fn add(&mut self, mut vertices: Vertices) {
-        let first = match &mut vertices {
-            Vertices::Linear(vs) => vs.next(),
-            Vertices::Arc(vs) => vs.next(),
+    /// Begins rendering a new move by writing the first [`LineInstance`] to [`Self::lines_buffer`],
+    /// and storing the remainder in [`Self::current_instances`] for use in subsequent frames.
+    ///
+    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the first
+    /// [`LineInstance::end`] point.
+    ///
+    /// Subsequent instances are added in [`Self::update`],
+    /// depending on the target geometry of [`LineInstances`]:
+    /// - [`LineInstances::Linear`]: The new line instance is merged with the last instance in the
+    /// buffer, extending it.
+    /// - [`LineInstances::Arc`]: The new line instances are added individually to the buffer.
+    fn add(&mut self, mut instances: LineInstances) {
+        let first = match &mut instances {
+            LineInstances::Linear(lines) => lines.next(),
+            LineInstances::Arc(lines) => lines.next(),
         }
         .expect("At least one point is guarranteed, which would be the end point.");
 
         // since shaders are type agnostic and just see raw bytes,
         // therefore we can only add raw byte slices to the buffer of our types
         self.queue.write_buffer(
-            &self.vertex_buffer,
-            self.offset,
+            &self.lines_buffer,
+            self.lines_offset,
             bytemuck::cast_slice(&[first]),
         );
 
         // bytemuck cannot infer target type, therefore provide u8
-        self.offset += bytemuck::cast_slice::<Vertex, u8>(&[first]).len() as u64;
-        self.vertex_count += 1;
-        self.current_vertices = Some(vertices);
+        self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[first]).len() as u64;
+        self.lines_count += 1;
+        self.current_instances = Some(instances);
 
         self.queue.write_buffer(
             &self.tool_buffer,
             0,
-            bytemuck::cast_slice(&[Tool::at_vertex_end(first)]),
+            bytemuck::cast_slice(&[Tool::at_line_end(first)]),
         );
     }
 
+    /// Uploads the next [`LineInstance`] from [`Self::current_instances`] to
+    /// [`Self::lines_buffer`], depending on the target geometry of [`LineInstances`]:
+    /// - [`LineInstances::Linear`]: Merges the new line instance with the last instance in the
+    /// buffer, extending it.
+    /// - [`LineInstances::Arc`]: Appends the new line instance individually to the buffer.
+    ///
+    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the new line
+    /// instance end point.
+    ///
+    /// Returns `true` on exhaustion of line instances, indicating [`Gui`] to send a
+    /// [`Signal::Proceed`] to the [`Tui`] and receive a new [`Command`].
+    /// Returns `false` on adding a new line instance to the buffer (there may be more instances
+    /// left to upload to the buffer).
     fn update(&mut self) -> bool {
         // if None, signal has already been sent to retrieve a command from previous block
         // exhaustion
-        if let Some(vertices) = self.current_vertices.as_mut() {
-            match vertices {
-                Vertices::Linear(vs) => match vs.next() {
-                    Some(vertex) => {
-                        self.update_linear(vertex);
+        if let Some(instances) = self.current_instances.as_mut() {
+            match instances {
+                LineInstances::Linear(lines) => match lines.next() {
+                    Some(instance) => {
+                        self.update_linear(instance);
                         false
                     }
                     None => {
-                        self.current_vertices = None;
+                        self.current_instances = None;
                         true
                     }
                 },
-                Vertices::Arc(vs) => match vs.next() {
-                    Some(vertex) => {
-                        self.update_arc(vertex);
+                LineInstances::Arc(lines) => match lines.next() {
+                    Some(instance) => {
+                        self.update_arc(instance);
                         false
                     }
                     None => {
-                        self.current_vertices = None;
+                        self.current_instances = None;
                         true
                     }
                 },
@@ -618,55 +654,68 @@ impl Graphics {
         }
     }
 
-    // updates last vertex without adding anything to the buffer
-    fn update_linear(&mut self, vertex: Vertex) {
+    /// Merges the provided [`LineInstance`] with the last instance inside [`Self::lines_buffer`],
+    /// by updating its end position to that of the new instance.
+    ///
+    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the end position
+    /// of the provided line instance.
+    fn update_linear(&mut self, instance: LineInstance) {
         self.queue.write_buffer(
-            &self.vertex_buffer,
-            self.offset - bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64,
-            bytemuck::cast_slice(&[vertex]),
+            &self.lines_buffer,
+            self.lines_offset - bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64,
+            bytemuck::cast_slice(&[instance]),
         );
 
         self.queue.write_buffer(
             &self.tool_buffer,
             0,
-            bytemuck::cast_slice(&[Tool::at_vertex_end(vertex)]),
+            bytemuck::cast_slice(&[Tool::at_line_end(instance)]),
         );
     }
 
-    // updates last arc move by extending it and adding a new vertex segment
-    fn update_arc(&mut self, vertex: Vertex) {
+    /// Appends the provided [`LineInstance`] to [`Self::lines_buffer`].
+    ///
+    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the end position
+    /// of the provided line instance.
+    fn update_arc(&mut self, instance: LineInstance) {
         self.queue.write_buffer(
-            &self.vertex_buffer,
-            self.offset,
-            bytemuck::cast_slice(&[vertex]),
+            &self.lines_buffer,
+            self.lines_offset,
+            bytemuck::cast_slice(&[instance]),
         );
 
-        self.offset += bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64;
-        self.vertex_count += 1;
+        self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64;
+        self.lines_count += 1;
 
         self.queue.write_buffer(
             &self.tool_buffer,
             0,
-            bytemuck::cast_slice(&[Tool::at_vertex_end(vertex)]),
+            bytemuck::cast_slice(&[Tool::at_line_end(instance)]),
         );
     }
 
-    // rewrites updated fixed vertices to the vertex buffer
-    fn update_fixed(&mut self, max_travels: &Point, fixed_config: FixedVertexConfig) {
-        let vertices = Vertex::fixed(max_travels, fixed_config);
+    /// Regenerates the static [`LineInstance`]s with [`LineInstance::statics`],
+    /// and overwrites them to the beginning of [`Self::lines_buffer`].
+    fn update_statics(&mut self, max_travels: Point, static_config: StaticConfig) {
+        let instances = LineInstance::statics(max_travels, static_config);
 
         // update the fixed vertices
         self.queue
-            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+            .write_buffer(&self.lines_buffer, 0, bytemuck::cast_slice(&instances));
     }
 
-    // clear non fixed vertices from the screen
+    /// Clears all the toolpath [`LineInstance`]s from [`Self::lines_buffer`].
     fn clear(&mut self) {
-        self.vertex_count = self.fixed_vertex_count;
-        self.offset = self.fixed_offset;
-        self.current_vertices = None;
+        self.lines_count = self.static_count;
+        self.lines_offset = self.static_offset;
+        self.current_instances = None;
     }
 
+    /// Renders a new frame to the [`Self::surface`], drawing the toolpath and tool
+    /// by rendering both [`Self::lines_buffer`] and [`Self::tool_buffer`].
+    ///
+    /// # Errors
+    /// Returns [`anyhow::Error`] indicating that the surface is lost.
     fn render(&mut self) -> anyhow::Result<()> {
         if !self.configured {
             return Ok(());
@@ -732,9 +781,9 @@ impl Graphics {
 
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-        render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..6, 0..self.vertex_count);
+        render_pass.set_pipeline(&self.lines_pipeline);
+        render_pass.set_vertex_buffer(0, self.lines_buffer.slice(..));
+        render_pass.draw(0..6, 0..self.lines_count);
 
         render_pass.set_pipeline(&self.tool_pipeline);
         render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
@@ -748,6 +797,8 @@ impl Graphics {
         Ok(())
     }
 
+    /// Sets the active [`View`] in [`Self::uniforms`] and uploads the updated uniforms to
+    /// [`Self::uniform_buffer`].
     fn set_view(&mut self, view: View) {
         if self.uniforms.view() == view {
             return;
@@ -762,6 +813,8 @@ impl Graphics {
         );
     }
 
+    /// Toggles the tool visibility in [`Self::uniforms`] and uploads the updated uniforms to
+    /// [`Self::uniform_buffer`].
     fn toggle_tool(&mut self) {
         self.uniforms.toggle_tool();
 

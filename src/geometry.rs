@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, f64::consts::PI};
+use std::{cmp::Ordering, f64::consts::PI, mem::size_of};
 
 use winit::dpi::PhysicalSize;
 
@@ -11,8 +11,6 @@ use crate::{
 const SHOW_MACHINE_BOUNDARY: bool = false;
 const SHOW_GRID: bool = true;
 const SHOW_ORIGIN: bool = true;
-
-const DEFAULT_VIEW: View = View::Isometric;
 
 const DEFAULT_STROKE_WIDTH: f32 = 0.004;
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
@@ -31,14 +29,20 @@ const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 // units travelled per frame
 const SPEED: f64 = 5.0;
 
+/// Configuration of fixed [`LineInstance`]s that can be toggled.
 #[derive(Clone, Copy)]
-pub struct StaticVertices {
+pub struct StaticConfig {
+    /// Whether to render machine travels boundary box.
     machine_boundary: bool,
+    /// Whether to render the reference grid on [`Plane::XY`].
     grid: bool,
+    /// Whether to render X, Y, and Z axis indicators, rooted at origin.
     origin: bool,
 }
 
-impl Default for StaticVertices {
+impl Default for StaticConfig {
+    /// Generates a default config for static [`LineInstances`]s,
+    /// based on the compile-time constants.
     fn default() -> Self {
         Self {
             machine_boundary: SHOW_MACHINE_BOUNDARY,
@@ -48,36 +52,52 @@ impl Default for StaticVertices {
     }
 }
 
-impl StaticVertices {
+impl StaticConfig {
+    /// Toggles machine travel boundary box on or off.
     pub fn toggle_machine_boundary(&mut self) {
         self.machine_boundary = !self.machine_boundary
     }
 
+    /// Toggles the XY plane reference grid on or off.
     pub fn toggle_grid(&mut self) {
         self.grid = !self.grid
     }
 
+    /// Toggles all axis indicators on or off.
     pub fn toggle_origin(&mut self) {
         self.origin = !self.origin
     }
 }
 
+/// Represents a straight line between two points,
+/// that can be drawn to the screen with a vertex shader.
+///
+/// The vertex shader creates 6 vertices (two triangles) per line instance,
+/// to create a line with variable thickness.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Vertex {
+pub struct LineInstance {
+    /// 3D start point of the line.
     start: [f32; 3],
+    /// 3D end point of the line.
     pub end: [f32; 3],
+    /// RGB color of the line.
     color: [f32; 3],
+    /// Width of the rendered line, in pixels.
     stroke_width: f32,
 }
 
-impl Vertex {
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        // 3d start and end points
-        // with opaque colors
+impl LineInstance {
+    /// Returns a [`VertexBufferLayout`](wgpu::VertexBufferLayout) that describes how
+    /// [`LineInstance`]s are stored in a GPU buffer.
+    ///
+    /// The layout is set to use [`VertexStepMode::Instance`](wgpu::VertexStepMode::Instance),
+    /// which allows the vertex shader to expand a single line segment into polygons (two triangles)
+    /// by receiving the same [`LineInstance`] 6 times.
+    pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
-            // share the same buffer entry across a number of invocations
+            array_stride: size_of::<Self>() as wgpu::BufferAddress,
+            // share the same buffer entry across a number of vertices
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -86,18 +106,17 @@ impl Vertex {
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    // skipping over both start and end to get colors
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    offset: size_of::<[f32; 6]>() as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                    offset: size_of::<[f32; 9]>() as wgpu::BufferAddress,
                     shader_location: 3,
                     format: wgpu::VertexFormat::Float32,
                 },
@@ -105,19 +124,19 @@ impl Vertex {
         }
     }
 
-    pub fn fixed(max_travels: &Point, fixed_config: FixedVertexConfig) -> Vec<Self> {
+    pub fn statics(max_travels: Point, static_config: StaticConfig) -> Vec<Self> {
         let mut ret = vec![];
         let x = max_travels.x() as f32;
         let y = max_travels.y() as f32;
         let z = max_travels.z() as f32;
 
-        let boundary_stroke_width = if fixed_config.machine_boundary {
+        let boundary_stroke_width = if static_config.machine_boundary {
             MACHINE_BOUNDARY_WIDTH
         } else {
             0.0
         };
-        let grid_stroke_width = if fixed_config.grid { GRID_WIDTH } else { 0.0 };
-        let origin_stroke_width = if fixed_config.origin {
+        let grid_stroke_width = if static_config.grid { GRID_WIDTH } else { 0.0 };
+        let origin_stroke_width = if static_config.origin {
             ORIGIN_WIDTH
         } else {
             0.0
@@ -201,29 +220,29 @@ impl Vertex {
         ret.extend_from_slice(&[
             Self {
                 start: [0.0, 0.0, 0.0],
-                end: [x.abs() * 2.0, 0.0, 0.0],
+                end: [x * 2.0, 0.0, 0.0],
                 color: X_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
             },
             Self {
                 start: [0.0, 0.0, 0.0],
-                end: [0.0, y.abs() * 2.0, 0.0],
+                end: [0.0, y * 2.0, 0.0],
                 color: Y_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
             },
             Self {
                 start: [0.0, 0.0, 0.0],
-                end: [0.0, 0.0, z.abs() * 2.0],
+                end: [0.0, 0.0, z * 2.0],
                 color: Z_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
             },
         ]);
 
-        let step = if x.abs() > 1000.0 {
+        let step = if x > 1000.0 {
             100.0
-        } else if x.abs() > 500.0 {
+        } else if x > 500.0 {
             50.0
-        } else if x.abs() > 250.0 {
+        } else if x > 250.0 {
             25.0
         } else {
             10.0
@@ -232,11 +251,11 @@ impl Vertex {
         let mut current_x = 0.0;
         let mut current_y = 0.0;
 
-        while current_x < x.abs() * 2.0 {
+        while current_x < x * 2.0 {
             current_x += step;
             ret.push(Self {
-                start: [current_x, -y.abs() * 2.0, 0.0],
-                end: [current_x, y.abs() * 2.0, 0.0],
+                start: [current_x, -y * 2.0, 0.0],
+                end: [current_x, y * 2.0, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
             });
@@ -244,21 +263,21 @@ impl Vertex {
 
         current_x = 0.0;
 
-        while current_x > -x.abs() * 2.0 {
+        while current_x > -x * 2.0 {
             current_x -= step;
             ret.push(Self {
-                start: [current_x, -y.abs() * 2.0, 0.0],
-                end: [current_x, y.abs() * 2.0, 0.0],
+                start: [current_x, -y * 2.0, 0.0],
+                end: [current_x, y * 2.0, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
             });
         }
 
-        while current_y < y.abs() * 2.0 {
+        while current_y < y * 2.0 {
             current_y += step;
             ret.push(Self {
-                start: [-x.abs() * 2.0, current_y, 0.0],
-                end: [x.abs() * 2.0, current_y, 0.0],
+                start: [-x * 2.0, current_y, 0.0],
+                end: [x * 2.0, current_y, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
             });
@@ -266,11 +285,11 @@ impl Vertex {
 
         current_y = 0.0;
 
-        while current_y > -y.abs() * 2.0 {
+        while current_y > -y * 2.0 {
             current_y -= step;
             ret.push(Self {
-                start: [-x.abs() * 2.0, current_y, 0.0],
-                end: [x.abs() * 2.0, current_y, 0.0],
+                start: [-x * 2.0, current_y, 0.0],
+                end: [x * 2.0, current_y, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
             });
@@ -295,6 +314,153 @@ impl Vertex {
             color: FEED_MOVE_COLOR,
             stroke_width: DEFAULT_STROKE_WIDTH,
         }
+    }
+}
+
+pub enum LineInstances {
+    Linear(Box<dyn Iterator<Item = LineInstance>>),
+    Arc(Box<dyn Iterator<Item = LineInstance>>),
+}
+
+impl LineInstances {
+    pub fn new(summary: MotionSummary) -> Self {
+        match summary {
+            MotionSummary::Rapid(line) => Self::linear_points(line, LineInstance::rapid_move),
+            MotionSummary::Feed(line) => Self::linear_points(line, LineInstance::feed_move),
+            MotionSummary::Arc(arc) => Self::arc_points(arc),
+        }
+    }
+
+    // takes in a function pointer that provides the vertex
+    fn linear_points(line: Line, vertex: fn(Point, Point) -> LineInstance) -> Self {
+        let start = line.start;
+        let end = line.end;
+
+        // direction from start to end
+        let dir = end - start;
+        // distance between start and end points
+        let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
+
+        if dist <= SPEED {
+            return Self::Linear(Box::new([vertex(start, end)].into_iter()));
+        }
+
+        // amount to move each axis by to get next point
+        let delta = dir.mul_float(SPEED).div_float(dist);
+
+        let mut current = start;
+
+        Self::Linear(Box::new(std::iter::from_fn(move || {
+            if current == end {
+                return None;
+            }
+
+            let next = current + delta;
+            let remaining = end - next;
+
+            // use dot product to see if the next point is between start and end
+            if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
+                current = end;
+            } else {
+                current = next;
+            }
+
+            Some(vertex(start, current))
+        })))
+    }
+
+    // always drawn in feed
+    // reference: https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/
+    fn arc_points(arc: Arc) -> Self {
+        let plane = arc.center.plane();
+        let start = PlanarPoint::from_point(arc.start, plane);
+
+        let center = arc.center;
+        let radius = arc.radius;
+        let sweep = arc.sweep;
+
+        // angular speed
+        let step_angular = match arc.dir {
+            CircularDirection::Clockwise => 0.0 - SPEED / radius,
+            CircularDirection::CounterClockwise => SPEED / radius,
+        };
+        let steps_count = (sweep / step_angular).ceil().abs();
+        let step_linear = match plane {
+            Plane::XY => arc.end.z() - arc.start.z(),
+            Plane::XZ => arc.end.y() - arc.start.y(),
+            Plane::YZ => arc.end.x() - arc.start.x(),
+        } / steps_count;
+
+        if sweep.abs() <= step_angular.abs() {
+            return Self::Arc(Box::new(
+                [LineInstance::feed_move(arc.start, arc.end)].into_iter(),
+            ));
+        }
+
+        // start point relative to arc center
+        let rel_start = start - center;
+
+        // minor arc sweep angle with primary axis of the plane in radians
+        let mut current_sweep = (rel_start.first() / radius).clamp(-1.0, 1.0).acos();
+        if rel_start.second().is_sign_negative() {
+            current_sweep += PI;
+        }
+        let mut current_pos = arc.start;
+        // total sweep from positive major axis to get to end point
+        let end_sweep = current_sweep + sweep;
+
+        Self::Arc(Box::new(std::iter::from_fn(move || {
+            // both are exact same on bit level
+            if current_sweep == end_sweep {
+                return None;
+            }
+
+            current_sweep = match arc.dir {
+                CircularDirection::Clockwise => {
+                    if current_sweep + step_angular < end_sweep {
+                        end_sweep
+                    } else {
+                        current_sweep + step_angular
+                    }
+                }
+                CircularDirection::CounterClockwise => {
+                    if current_sweep + step_angular > end_sweep {
+                        end_sweep
+                    } else {
+                        current_sweep + step_angular
+                    }
+                }
+            };
+
+            // relative to center
+            let new_pos = if current_sweep == end_sweep {
+                arc.end
+            } else {
+                match plane {
+                    Plane::XY => Point::new(
+                        arc.center.first() + radius * current_sweep.cos(),
+                        arc.center.second() + radius * current_sweep.sin(),
+                        current_pos.z() + step_linear,
+                    ),
+                    Plane::XZ => Point::new(
+                        arc.center.first() + radius * current_sweep.cos(),
+                        current_pos.y() + step_linear,
+                        arc.center.second() + radius * current_sweep.sin(),
+                    ),
+                    Plane::YZ => Point::new(
+                        current_pos.x() + step_linear,
+                        arc.center.first() + radius * current_sweep.cos(),
+                        arc.center.second() + radius * current_sweep.sin(),
+                    ),
+                }
+            };
+
+            let ret = Some(LineInstance::feed_move(current_pos, new_pos));
+
+            current_pos = new_pos;
+
+            ret
+        })))
     }
 }
 
@@ -327,7 +493,7 @@ impl Uniforms {
             0.0,
         ];
 
-        let machine_size = machine_size(max_travels.as_slice(), &DEFAULT_VIEW);
+        let machine_size = machine_size(max_travels.as_slice(), View::default());
         let scale = scale(window_size, machine_size);
         let padding = padding(window_size, machine_size, scale);
 
@@ -338,14 +504,14 @@ impl Uniforms {
             tool_color: TOOL_COLOR,
             tool_size: max_travels[0].abs() / 40.0,
             tool_len: max_travels[2].abs() / 2.0,
-            view: DEFAULT_VIEW,
+            view: View::default(),
             scale,
         }
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
         self.window_size = [new_size.width as f32, new_size.height as f32];
-        let machine_size = machine_size(self.max_travels.as_slice(), &self.view);
+        let machine_size = machine_size(self.max_travels.as_slice(), self.view);
         self.scale = scale(self.window_size, machine_size);
         self.padding = padding(self.window_size, machine_size, self.scale);
     }
@@ -372,7 +538,7 @@ impl Uniforms {
 }
 
 // returns rect dims to fit inside the window, but in machine units
-fn machine_size(max_travels: &[f32], view: &View) -> [f32; 2] {
+fn machine_size(max_travels: &[f32], view: View) -> [f32; 2] {
     match view {
         // use x and y of the machine
         View::Top => [max_travels[0].abs(), max_travels[1].abs()],
@@ -453,180 +619,34 @@ pub fn points(start: Point, end: Point) -> Box<dyn Iterator<Item = Point>> {
     }))
 }
 
-#[derive(Clone, Copy)]
-pub struct FixedVertexConfig {
-    machine_boundary: bool,
-    grid: bool,
-    origin: bool,
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Tool {
+    position: [f32; 3],
 }
 
-impl Default for FixedVertexConfig {
-    fn default() -> Self {
+impl Tool {
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x3,
+            }],
+        }
+    }
+
+    pub fn at_point(point: Point) -> Self {
         Self {
-            machine_boundary: SHOW_MACHINE_BOUNDARY,
-            grid: SHOW_GRID,
-            origin: SHOW_ORIGIN,
-        }
-    }
-}
-
-impl FixedVertexConfig {
-    pub fn toggle_machine_boundary(&mut self) {
-        self.machine_boundary = !self.machine_boundary
-    }
-
-    pub fn toggle_gird(&mut self) {
-        self.grid = !self.grid
-    }
-
-    pub fn toggle_origin(&mut self) {
-        self.origin = !self.origin
-    }
-}
-
-pub enum Vertices {
-    Linear(Box<dyn Iterator<Item = Vertex>>),
-    Arc(Box<dyn Iterator<Item = Vertex>>),
-}
-
-impl Vertices {
-    pub fn new(summary: MotionSummary) -> Self {
-        match summary {
-            MotionSummary::Rapid(line) => Self::linear_points(line, Vertex::rapid_move),
-            MotionSummary::Feed(line) => Self::linear_points(line, Vertex::feed_move),
-            MotionSummary::Arc(arc) => Self::arc_points(arc),
+            position: [point.x() as f32, point.y() as f32, point.z() as f32],
         }
     }
 
-    // takes in a function pointer that provides the vertex
-    fn linear_points(line: Line, vertex: fn(Point, Point) -> Vertex) -> Self {
-        let start = line.start;
-        let end = line.end;
-
-        // direction from start to end
-        let dir = end - start;
-        // distance between start and end points
-        let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
-
-        if dist <= SPEED {
-            return Self::Linear(Box::new([vertex(start, end)].into_iter()));
+    pub fn at_line_end(instance: LineInstance) -> Self {
+        Self {
+            position: instance.end,
         }
-
-        // amount to move each axis by to get next point
-        let delta = dir.mul_float(SPEED).div_float(dist);
-
-        let mut current = start;
-
-        Self::Linear(Box::new(std::iter::from_fn(move || {
-            if current == end {
-                return None;
-            }
-
-            let next = current + delta;
-            let remaining = end - next;
-
-            // use dot product to see if the next point is between start and end
-            if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
-                current = end;
-            } else {
-                current = next;
-            }
-
-            Some(vertex(start, current))
-        })))
-    }
-
-    // always drawn in feed
-    // reference: https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/
-    fn arc_points(arc: Arc) -> Self {
-        let plane = arc.center.plane();
-        let start = PlanarPoint::from_point(arc.start, plane);
-
-        let center = arc.center;
-        let radius = arc.radius;
-        let sweep = arc.sweep;
-
-        // angular speed
-        let step_angular = match arc.dir {
-            CircularDirection::Clockwise => 0.0 - SPEED / radius,
-            CircularDirection::CounterClockwise => SPEED / radius,
-        };
-        let steps_count = (sweep / step_angular).ceil().abs();
-        let step_linear = match plane {
-            Plane::XY => arc.end.z() - arc.start.z(),
-            Plane::XZ => arc.end.y() - arc.start.y(),
-            Plane::YZ => arc.end.x() - arc.start.x(),
-        } / steps_count;
-
-        if sweep.abs() <= step_angular.abs() {
-            return Self::Arc(Box::new(
-                [Vertex::feed_move(arc.start, arc.end)].into_iter(),
-            ));
-        }
-
-        // start point relative to arc center
-        let rel_start = start - center;
-
-        // minor arc sweep angle with primary axis of the plane in radians
-        let mut current_sweep = (rel_start.first() / radius).clamp(-1.0, 1.0).acos();
-        if rel_start.second().is_sign_negative() {
-            current_sweep += PI;
-        }
-        let mut current_pos = arc.start;
-        // total sweep from positive major axis to get to end point
-        let end_sweep = current_sweep + sweep;
-
-        Self::Arc(Box::new(std::iter::from_fn(move || {
-            // both are exact same on bit level
-            if current_sweep == end_sweep {
-                return None;
-            }
-
-            current_sweep = match arc.dir {
-                CircularDirection::Clockwise => {
-                    if current_sweep + step_angular < end_sweep {
-                        end_sweep
-                    } else {
-                        current_sweep + step_angular
-                    }
-                }
-                CircularDirection::CounterClockwise => {
-                    if current_sweep + step_angular > end_sweep {
-                        end_sweep
-                    } else {
-                        current_sweep + step_angular
-                    }
-                }
-            };
-
-            // relative to center
-            let new_pos = if current_sweep == end_sweep {
-                arc.end
-            } else {
-                match plane {
-                    Plane::XY => Point::new(
-                        arc.center.first() + radius * current_sweep.cos(),
-                        arc.center.second() + radius * current_sweep.sin(),
-                        current_pos.z() + step_linear,
-                    ),
-                    Plane::XZ => Point::new(
-                        arc.center.first() + radius * current_sweep.cos(),
-                        current_pos.y() + step_linear,
-                        arc.center.second() + radius * current_sweep.sin(),
-                    ),
-                    Plane::YZ => Point::new(
-                        current_pos.x() + step_linear,
-                        arc.center.first() + radius * current_sweep.cos(),
-                        arc.center.second() + radius * current_sweep.sin(),
-                    ),
-                }
-            };
-
-            let ret = Some(Vertex::feed_move(current_pos, new_pos));
-
-            current_pos = new_pos;
-
-            ret
-        })))
     }
 }
