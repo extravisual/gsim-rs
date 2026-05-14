@@ -80,7 +80,7 @@ pub struct LineInstance {
     /// 3D start point of the line.
     start: [f32; 3],
     /// 3D end point of the line.
-    pub end: [f32; 3],
+    end: [f32; 3],
     /// RGB color of the line.
     color: [f32; 3],
     /// Width of the rendered line, in pixels.
@@ -124,6 +124,8 @@ impl LineInstance {
         }
     }
 
+    /// Generates a vector of [`LineInstance`]s which render the static geometry (boundary, grid,
+    /// orgin), based on the maximum machine travels and [`StaticConfig`] supplied.
     pub fn statics(max_travels: Point, static_config: StaticConfig) -> Vec<Self> {
         let mut ret = vec![];
         let x = max_travels.x() as f32;
@@ -298,6 +300,8 @@ impl LineInstance {
         ret
     }
 
+    /// Creates a single [`LineInstance`] from `start` to `end`,
+    /// with [`DEFAULT_STROKE_WIDTH`] and [`RAPID_MOVE_COLOR`].
     pub fn rapid_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x() as f32, start.y() as f32, start.z() as f32],
@@ -307,6 +311,8 @@ impl LineInstance {
         }
     }
 
+    /// Creates a single [`LineInstance`] from `start` to `end`,
+    /// with [`DEFAULT_STROKE_WIDTH`] and [`FEED_MOVE_COLOR`].
     pub fn feed_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x() as f32, start.y() as f32, start.z() as f32],
@@ -317,12 +323,21 @@ impl LineInstance {
     }
 }
 
+/// Represents an iterator of [`LineInstance`]s based on the geometry type.
+///
+/// The geometry type is used to determine how the new line instances are added to
+/// the GPU [`buffer`](crate::gui::Graphics::lines_buffer);
 pub enum LineInstances {
+    /// A single straight line.
+    /// Rendered by adding and updating only one new instance to the GPU buffer, in order to save memory.
     Linear(Box<dyn Iterator<Item = LineInstance>>),
+    /// A circular arc, split into a number of small line instances.
+    /// Rendered by adding each new instance to the GPU buffer.
     Arc(Box<dyn Iterator<Item = LineInstance>>),
 }
 
 impl LineInstances {
+    /// Converts a [`MotionSummary`] to the corresponding [`LineInstances`] vairant.
     pub fn new(summary: MotionSummary) -> Self {
         match summary {
             MotionSummary::Rapid(line) => Self::linear_points(line, LineInstance::rapid_move),
@@ -331,8 +346,14 @@ impl LineInstances {
         }
     }
 
-    // takes in a function pointer that provides the vertex
-    fn linear_points(line: Line, vertex: fn(Point, Point) -> LineInstance) -> Self {
+    /// Splits a [`Line`] into a [`LineInstances::Linear`] iterator,
+    /// advancing [`SPEED`] units per instance from [`Line::start`] to [`Line::end`].
+    ///
+    /// Each new instance is rooted at `start` rather than the `end` of the previous line instance.
+    ///
+    /// The returned iteraotr is guaranteed to **NOT be empty**, and will return only a single instance,
+    /// if the length of [`Line`] is shorter than [`SPEED`].
+    fn linear_points(line: Line, get_instance: fn(Point, Point) -> LineInstance) -> Self {
         let start = line.start;
         let end = line.end;
 
@@ -342,7 +363,7 @@ impl LineInstances {
         let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
 
         if dist <= SPEED {
-            return Self::Linear(Box::new([vertex(start, end)].into_iter()));
+            return Self::Linear(Box::new([get_instance(start, end)].into_iter()));
         }
 
         // amount to move each axis by to get next point
@@ -365,12 +386,12 @@ impl LineInstances {
                 current = next;
             }
 
-            Some(vertex(start, current))
+            Some(get_instance(start, current))
         })))
     }
 
-    // always drawn in feed
-    // reference: https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/
+    /// # Reference
+    /// [`FreeMathHelp`](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
     fn arc_points(arc: Arc) -> Self {
         let plane = arc.center.plane();
         let start = PlanarPoint::from_point(arc.start, plane);
@@ -410,7 +431,7 @@ impl LineInstances {
         let end_sweep = current_sweep + sweep;
 
         Self::Arc(Box::new(std::iter::from_fn(move || {
-            // both are exact same on bit level
+            // both are exact same on bit level because of direct assignment
             if current_sweep == end_sweep {
                 return None;
             }

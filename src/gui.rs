@@ -576,7 +576,7 @@ impl Graphics {
     /// and storing the remainder in [`Self::current_instances`] for use in subsequent frames.
     ///
     /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the first
-    /// [`LineInstance::end`] point.
+    /// [`LineInstance`] end point.
     ///
     /// Subsequent instances are added in [`Self::update`],
     /// depending on the target geometry of [`LineInstances`]:
@@ -654,8 +654,7 @@ impl Graphics {
         }
     }
 
-    /// Merges the provided [`LineInstance`] with the last instance inside [`Self::lines_buffer`],
-    /// by updating its end position to that of the new instance.
+    /// Overwrites the provided [`LineInstance`] to the last instance inside [`Self::lines_buffer`].
     ///
     /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the end position
     /// of the provided line instance.

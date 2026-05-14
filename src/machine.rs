@@ -104,7 +104,8 @@ impl Arc {
     /// - [`MachineError::InvalidCircle`] -- The provided or calculated radius does not satisfy both
     ///   the points.
     ///
-    /// # Reference: [`Math Stack Exchange`](https://math.stackexchange.com/questions/1781438/finding-the-center-of-a-circle-given-two-points-and-a-radius-algebraically)
+    /// # Reference
+    /// [`Math Stack Exchange`](https://math.stackexchange.com/questions/1781438/finding-the-center-of-a-circle-given-two-points-and-a-radius-algebraically)
     pub fn build(
         start: Point,
         end: Point,
@@ -302,7 +303,7 @@ impl Arc {
     /// The returned sweep will be **negative** for [`CircularDirection::Clockwise`],
     /// and **positive** for [`CircularDirection::CounterClockwise`].
     ///
-    /// # Reference:
+    /// # Reference
     /// [Stackoverflow]( https://stackoverflow.com/questions/2994669/how-do-i-calculate-arc-angle-between-two-points-on-a-circle)
     fn sweep(
         to_start: PlanarPoint,
