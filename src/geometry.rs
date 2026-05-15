@@ -351,7 +351,7 @@ impl LineInstances {
     ///
     /// Each new instance is rooted at `start` rather than the `end` of the previous line instance.
     ///
-    /// The returned iteraotr is guaranteed to **NOT be empty**, and will return only a single instance,
+    /// The returned iterator is guaranteed to **NOT be empty**, and will return only a single instance,
     /// if the length of [`Line`] is shorter than [`SPEED`].
     fn linear_points(line: Line, get_instance: fn(Point, Point) -> LineInstance) -> Self {
         let start = line.start;
@@ -390,6 +390,14 @@ impl LineInstances {
         })))
     }
 
+    /// Splits an [`Arc`] into a [`LineInstances::Arc`] iterator,
+    /// advancing [`SPEED`] per radius radians per instance from [`Arc::start`] to [`Arc::end`].
+    ///
+    /// Each new instance starts at the `end` of the previous line instance.
+    ///
+    /// The returned iterator is guaranteed to **NOT be empty**, and will return only a single instance,
+    /// if the angular sweep of [`Arc`] is shorter than [`SPEED`] per arc radius.
+    ///
     /// # Reference
     /// [`FreeMathHelp`](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
     fn arc_points(arc: Arc) -> Self {
@@ -410,7 +418,7 @@ impl LineInstances {
             Plane::XY => arc.end.z() - arc.start.z(),
             Plane::XZ => arc.end.y() - arc.start.y(),
             Plane::YZ => arc.end.x() - arc.start.x(),
-        } / steps_count;
+        } / steps_count; // amount to move the third axis for each step
 
         if sweep.abs() <= step_angular.abs() {
             return Self::Arc(Box::new(
@@ -485,26 +493,84 @@ impl LineInstances {
     }
 }
 
+/// Represents the current 3D position of the tool,
+/// that can be drawn to the screen with a vertex shader.
+///
+/// The vertex shader creates 6 vertices (two triangles) per line instance,
+/// to create a line with variable thickness.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ToolInstance {
+    position: [f32; 3],
+}
+
+impl ToolInstance {
+    /// Returns a [`VertexBufferLayout`](wgpu::VertexBufferLayout) that describes how the
+    /// [`ToolInstance`] is stored in a GPU buffer.
+    ///
+    /// The layout is set to use [`VertexStepMode::Instance`](wgpu::VertexStepMode::Instance),
+    /// which allows the vertex shader to expand a single 3D point to a cylinderical tool,
+    /// with its bottom center at the tool position.
+    pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x3,
+            }],
+        }
+    }
+
+    /// Creates a new [`ToolInstance`], which will be rendered at the provided [`Point`].
+    pub fn at_point(point: Point) -> Self {
+        Self {
+            position: [point.x() as f32, point.y() as f32, point.z() as f32],
+        }
+    }
+
+    /// Creates a new [`ToolInstance`], which will be rendered at [`LineInstance::end`].
+    pub fn at_line_end(instance: LineInstance) -> Self {
+        Self {
+            position: instance.end,
+        }
+    }
+}
+
+/// Represents the constant data to be shared across
+/// all [`LineInstance`]s and the [`ToolInstance`], per frame.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
+    /// Width and height of the surface.
     window_size: [f32; 2],
-    // padding in pixels to center machine view inside the window
+    /// Padding to center the machine view in pixels.
+    /// This changes based on the active [`View`] and [`Self::window_size`].
     padding: [f32; 2],
-    // signed max travels for each axis, starting at 0 for each axis
+    /// Maximum axis travels for each axis of the machine.
+    /// The first three number correspond to X, Y, and Z axis travels respectively.
+    /// The last value is used for alignment and is never used.
     max_travels: [f32; 4],
-    // color of the tool
+    /// Color for rendering the [`ToolInstance`].
     tool_color: [f32; 4],
-    // diameter of the tool
+    /// Diameter of the tool to render.
     tool_size: f32,
-    // length of the tool
+    /// Length of the tool to render.
     tool_len: f32,
-    // absolute scale, to convert machine unit to pixels
+    /// Absolute scaling factor to convert machine units to pixels.
+    /// This is in **pixels per machine unit**,
+    /// and changes based on the active [`View`] and [`Self::window_size`].
     scale: f32,
+    /// Active [`View`].
     view: View,
 }
 
 impl Uniforms {
+    /// Constructs a new [`Uniforms`] with view set to [`View::default`].
+    ///
+    /// [`Self::scale`] and [`Self::padding`] values are calculated based on [`View::default`],
+    /// and the provided `window_size` and `max_travels`.
     pub fn new(window_size: PhysicalSize<u32>, max_travels: Point) -> Self {
         let window_size = [window_size.width as f32, window_size.height as f32];
         let max_travels = [
@@ -513,8 +579,9 @@ impl Uniforms {
             max_travels.z() as f32,
             0.0,
         ];
+        let view = View::default();
 
-        let machine_size = machine_size(max_travels.as_slice(), View::default());
+        let machine_size = machine_size(max_travels.as_slice(), view);
         let scale = scale(window_size, machine_size);
         let padding = padding(window_size, machine_size, scale);
 
@@ -525,22 +592,25 @@ impl Uniforms {
             tool_color: TOOL_COLOR,
             tool_size: max_travels[0].abs() / 40.0,
             tool_len: max_travels[2].abs() / 2.0,
-            view: View::default(),
+            view,
             scale,
         }
     }
 
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        self.window_size = [new_size.width as f32, new_size.height as f32];
+    /// Recalculates [`Self::scale`] and [`Self::padding`] for a new `window_size`.
+    pub fn resize(&mut self, window_size: PhysicalSize<u32>) {
+        self.window_size = [window_size.width as f32, window_size.height as f32];
         let machine_size = machine_size(self.max_travels.as_slice(), self.view);
         self.scale = scale(self.window_size, machine_size);
         self.padding = padding(self.window_size, machine_size, self.scale);
     }
 
+    /// Returns the active [`View`].
     pub fn view(&self) -> View {
         self.view
     }
 
+    /// Changes the active view and recalculates [`Self::scale`] and [`Self::padding`].
     pub fn set_view(&mut self, view: View) {
         self.view = view;
         self.resize(PhysicalSize {
@@ -549,16 +619,23 @@ impl Uniforms {
         });
     }
 
+    /// Toggles tool visibility by:
+    /// - Setting [`Self::tool_size`] to `0.0` to hide.
+    /// - Recalculating [`Self::tool_size`] from [`Self::max_travels`] to show.
     pub fn toggle_tool(&mut self) {
         self.tool_size = if self.tool_size > 1e-10 {
             0.0
         } else {
-            self.max_travels[0].abs() / 40.0
+            (self.max_travels[0].abs() + self.max_travels[1].abs() + self.max_travels[2].abs())
+                / 100.0
         }
     }
 }
 
-// returns rect dims to fit inside the window, but in machine units
+/// Returns the size of a rectangle that would be needed to fit a machine with `max_travels`,
+/// rendered from the provided [`View`].
+///
+/// The returned size will be in the same units as `max_travels`.
 fn machine_size(max_travels: &[f32], view: View) -> [f32; 2] {
     match view {
         // use x and y of the machine
@@ -568,7 +645,10 @@ fn machine_size(max_travels: &[f32], view: View) -> [f32; 2] {
     }
 }
 
-// returns the real estate required to project the whole machine cuboid, in machine units
+/// Returns the size of a rectangle that would be needed to fit a machine with `max_travels`,
+/// rendered from [`View::Isometric`].
+///
+/// The returned size will be in the same units as `max_travels`.
 fn project_bounding_box(max_travels: &[f32]) -> [f32; 2] {
     [
         (max_travels[0].abs() + max_travels[1].abs()) / 2.0_f32.sqrt(),
@@ -576,8 +656,12 @@ fn project_bounding_box(max_travels: &[f32]) -> [f32; 2] {
     ]
 }
 
-// multiply this to machine units to get the number of pixels
-// takes final machine_size, after projection if applicable
+/// Computes the scaling factor, in **pixels per machine unit**,
+/// that fits the machine inside the window.
+///
+/// The provided `machine_size` must be the size **AFTER** any projection.
+///
+/// The returned scale will prioritize scaling the axis that is shorter relative to that of the window.
 fn scale(window_size: [f32; 2], machine_size: [f32; 2]) -> f32 {
     // y / x
     let window_ratio = window_size[1] / window_size[0];
@@ -596,78 +680,12 @@ fn scale(window_size: [f32; 2], machine_size: [f32; 2]) -> f32 {
     scale - MACHINE_BOUNDARY_WIDTH
 }
 
-// returns the padding to center the machine view inside the window
-// takes final machine_size, after projection if applicable
+/// Computes the padding, in **pixels**, that centers the machine inside the window.
+///
+/// The provided `machine_size` must be the size **AFTER** any projection.
 fn padding(window_size: [f32; 2], machine_size: [f32; 2], scale: f32) -> [f32; 2] {
     [
         (window_size[0] - machine_size[0] * scale) / 2.0,
         (window_size[1] - machine_size[1] * scale) / 2.0,
     ]
-}
-
-// start is not included in the iterated output
-pub fn points(start: Point, end: Point) -> Box<dyn Iterator<Item = Point>> {
-    // relative distance of end point from start
-    let dir = end - start;
-    // distance between start and end points
-    let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
-
-    if dist <= SPEED {
-        return Box::new([end].into_iter());
-    }
-
-    // amount to move each axis by to get next point
-    let delta = dir.mul_float(SPEED).div_float(dist);
-
-    let mut current = start;
-
-    Box::new(std::iter::from_fn(move || {
-        if current == end {
-            return None;
-        }
-
-        let next = current + delta;
-        let remaining = end - next;
-
-        // use dot product to see if the next point is between start and end
-        if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
-            current = end;
-        } else {
-            current = next;
-        }
-
-        Some(current)
-    }))
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Tool {
-    position: [f32; 3],
-}
-
-impl Tool {
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[wgpu::VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: wgpu::VertexFormat::Float32x3,
-            }],
-        }
-    }
-
-    pub fn at_point(point: Point) -> Self {
-        Self {
-            position: [point.x() as f32, point.y() as f32, point.z() as f32],
-        }
-    }
-
-    pub fn at_line_end(instance: LineInstance) -> Self {
-        Self {
-            position: instance.end,
-        }
-    }
 }

@@ -8,7 +8,7 @@
 #[allow(unused_imports)]
 use crate::{
     Command, Signal, View,
-    geometry::{LineInstance, LineInstances, StaticConfig, Tool, Uniforms},
+    geometry::{LineInstance, LineInstances, StaticConfig, ToolInstance, Uniforms},
     machine::HOME_POS,
     parser::Point,
     tui::Tui,
@@ -488,7 +488,7 @@ impl Graphics {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Tool::desc()],
+                buffers: &[ToolInstance::buffer_layout()],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -521,12 +521,12 @@ impl Graphics {
 
         let tool_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Tool"),
-            size: size_of::<Tool>() as u64,
+            size: size_of::<ToolInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let tool = Tool::at_point(HOME_POS);
+        let tool = ToolInstance::at_point(HOME_POS);
         queue.write_buffer(&tool_buffer, 0, bytemuck::cast_slice(&[tool]));
         queue.submit([]);
 
@@ -606,7 +606,7 @@ impl Graphics {
         self.queue.write_buffer(
             &self.tool_buffer,
             0,
-            bytemuck::cast_slice(&[Tool::at_line_end(first)]),
+            bytemuck::cast_slice(&[ToolInstance::at_line_end(first)]),
         );
     }
 
@@ -668,7 +668,7 @@ impl Graphics {
         self.queue.write_buffer(
             &self.tool_buffer,
             0,
-            bytemuck::cast_slice(&[Tool::at_line_end(instance)]),
+            bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
         );
     }
 
@@ -689,7 +689,7 @@ impl Graphics {
         self.queue.write_buffer(
             &self.tool_buffer,
             0,
-            bytemuck::cast_slice(&[Tool::at_line_end(instance)]),
+            bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
         );
     }
 
