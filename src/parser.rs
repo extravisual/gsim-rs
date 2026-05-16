@@ -12,7 +12,7 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-use super::lexer::{
+use crate::lexer::{
     Block, *, {Float, Group, Int, Prefix},
 };
 use std::{

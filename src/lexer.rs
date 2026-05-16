@@ -5,7 +5,7 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-use super::source::Source;
+use crate::source::Source;
 
 /// Prefix **ASCII** character for codes.
 pub type Prefix = u8;

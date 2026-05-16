@@ -1,12 +1,10 @@
-use std::{cmp::Ordering, f64::consts::PI, mem::size_of};
-
-use winit::dpi::PhysicalSize;
-
 use crate::{
     View,
     machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
     parser::{Plane, Point},
 };
+use std::{cmp::Ordering, f64::consts::PI, mem::size_of};
+use winit::dpi::PhysicalSize;
 
 const SHOW_MACHINE_BOUNDARY: bool = false;
 const SHOW_GRID: bool = true;

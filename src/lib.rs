@@ -12,8 +12,8 @@ use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
-// const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, 600.0);
-const MACHINE_TRAVELS: Point = Point::new(600.0, 300.0, 300.0);
+const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, 600.0);
+// const MACHINE_TRAVELS: Point = Point::new(600.0, 300.0, 300.0);
 
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
