@@ -1,12 +1,11 @@
 struct Uniforms {
     window_size: vec2<f32>,
-    _pad0: vec2<f32>,
+    _pad: vec2<f32>,
     max_travels: vec4<f32>,
     projection: mat4x4<f32>,
     tool_color: vec4<f32>,
     tool_size: f32,
     tool_len: f32,
-    _pad: f32,
     view: u32,
 };
 
@@ -33,9 +32,9 @@ fn clipped() -> VertexOutput {
 // cylinder
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
-    // total triangles = 360/5 * 4
-    // total vertices = 360/5 * 4 * 3 = 864
-    if index >= 864 {
+    // total triangles = 360/10 * 4
+    // total vertices = 360/10 * 4 * 3 = 432
+    if index >= 432 {
         // not possible
         // clip out
         return clipped();
@@ -46,11 +45,12 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     // vertex of triangle to draw
     let vertex = index % 3;
     // what face of the cylinder does this triangle draw at a particular degree
-    let face = triangle / 72;
+    let face = triangle / 36;
 
     // angle in radians
-    let angle = radians(f32(triangle % 72) * 5.0);
-    let angle_next = radians(f32(triangle % 72) * 5.0 + 5.0);
+    // each triangle covers 10 degrees
+    let angle = radians(f32(triangle % 36) * 10.0);
+    let angle_next = radians(f32(triangle % 36) * 10.0 + 10.0);
 
     let tool_size = uniforms.tool_size;
     let tool_len = uniforms.tool_len;

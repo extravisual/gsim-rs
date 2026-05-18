@@ -261,6 +261,10 @@ pub struct Graphics {
     /// Since the surface holds a reference to the [`Window`] it was created from,
     /// the window is kept alive as long as the surface.
     surface: wgpu::Surface<'static>,
+    /// Depth texture configured to [`Self::surface`] size.
+    depth_texture: wgpu::Texture,
+    /// View for [`Self::depth_texture`] to be used in the render pass.
+    depth_view: wgpu::TextureView,
     /// Description of a [`Surface`](wgpu::Surface).
     config: wgpu::SurfaceConfiguration,
 
@@ -375,6 +379,23 @@ impl Graphics {
             view_formats: vec![],
         };
 
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("GSim"),
+            size: wgpu::Extent3d {
+                width: config.width,
+                height: config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         // ######## Uniforms ########
         //
         // static data to be passed to the shader, that is common to vertices
@@ -412,7 +433,7 @@ impl Graphics {
         // ######## Line Vertex ########
         //
         // mini program that runs on the gpu
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("line.wgsl"));
 
         let lines_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -439,7 +460,13 @@ impl Graphics {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0, // use all
@@ -499,7 +526,13 @@ impl Graphics {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -534,6 +567,8 @@ impl Graphics {
             device,
             queue,
             surface,
+            depth_texture,
+            depth_view,
             config,
             lines_pipeline,
             lines_buffer,
@@ -552,7 +587,7 @@ impl Graphics {
         })
     }
 
-    /// Reconfigures [`Self::surface`], updates & rewrites [`Self::uniforms`] to use the new provided size.
+    /// Reconfigures [`Self::surface`] and [`Self::depth_texture`], updates & rewrites [`Self::uniforms`] to use the new provided size.
     fn resize(&mut self, new_size: PhysicalSize<u32>) {
         let width = new_size.width;
         let height = new_size.height;
@@ -562,6 +597,24 @@ impl Graphics {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.configured = true;
+
+            self.depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("GSim"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            self.depth_view = self
+                .depth_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
 
             self.uniforms.resize(new_size);
             self.queue.write_buffer(
@@ -772,7 +825,14 @@ impl Graphics {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
@@ -786,7 +846,7 @@ impl Graphics {
 
         render_pass.set_pipeline(&self.tool_pipeline);
         render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
-        render_pass.draw(0..864, 0..1);
+        render_pass.draw(0..432, 0..1);
 
         drop(render_pass);
 

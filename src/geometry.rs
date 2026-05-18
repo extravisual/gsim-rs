@@ -88,6 +88,9 @@ pub struct LineInstance {
     color: [f32; 3],
     /// Width of the rendered line, in pixels.
     stroke_width: f32,
+    /// Depth of the instance in NDC, used inside the shader.
+    /// Must be in range 0..1.
+    depth: f32,
 }
 
 impl LineInstance {
@@ -123,6 +126,11 @@ impl LineInstance {
                     shader_location: 3,
                     format: wgpu::VertexFormat::Float32,
                 },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 10]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32,
+                },
             ],
         }
     }
@@ -147,102 +155,120 @@ impl LineInstance {
             0.0
         };
 
+        // boundary
         ret.extend_from_slice(&[
             Self {
                 start: [x, y, z],
                 end: [0.0, y, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [x, y, z],
                 end: [x, 0.0, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [0.0, y, z],
                 end: [0.0, 0.0, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [x, 0.0, z],
                 end: [0.0, 0.0, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [x, y, 0.0],
                 end: [0.0, y, 0.0],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [x, y, 0.0],
                 end: [x, 0.0, 0.0],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [0.0, y, 0.0],
                 end: [0.0, 0.0, 0.0],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [x, 0.0, 0.0],
                 end: [0.0, 0.0, 0.0],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [x, y, 0.0],
                 end: [x, y, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [x, 0.0, 0.0],
                 end: [x, 0.0, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [0.0, y, 0.0],
                 end: [0.0, y, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
             Self {
                 start: [0.0, 0.0, 0.0],
                 end: [0.0, 0.0, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: boundary_stroke_width,
+                depth: 0.1,
             },
         ]);
 
+        // origin
         ret.extend_from_slice(&[
             Self {
                 start: [0.0, 0.0, 0.0],
                 end: [x * 2.0, 0.0, 0.0],
                 color: X_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
+                depth: 0.25,
             },
             Self {
                 start: [0.0, 0.0, 0.0],
                 end: [0.0, y * 2.0, 0.0],
                 color: Y_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
+                depth: 0.25,
             },
             Self {
                 start: [0.0, 0.0, 0.0],
                 end: [0.0, 0.0, z * 2.0],
                 color: Z_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
+                depth: 0.25,
             },
         ]);
 
+        // grid
         let step = if x > 1000.0 {
             100.0
         } else if x > 500.0 {
@@ -257,13 +283,14 @@ impl LineInstance {
         let mut current_y = 0.0;
 
         while current_x < x * 2.0 {
-            current_x += step;
             ret.push(Self {
                 start: [current_x, -y * 2.0, 0.0],
                 end: [current_x, y * 2.0, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
+                depth: 0.75,
             });
+            current_x += step;
         }
 
         current_x = 0.0;
@@ -275,17 +302,19 @@ impl LineInstance {
                 end: [current_x, y * 2.0, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
+                depth: 0.75,
             });
         }
 
         while current_y < y * 2.0 {
-            current_y += step;
             ret.push(Self {
                 start: [-x * 2.0, current_y, 0.0],
                 end: [x * 2.0, current_y, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
+                depth: 0.75,
             });
+            current_y += step;
         }
 
         current_y = 0.0;
@@ -297,6 +326,7 @@ impl LineInstance {
                 end: [x * 2.0, current_y, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
+                depth: 0.75,
             });
         }
 
@@ -311,6 +341,7 @@ impl LineInstance {
             end: [end.x() as f32, end.y() as f32, end.z() as f32],
             color: RAPID_MOVE_COLOR,
             stroke_width: DEFAULT_STROKE_WIDTH,
+            depth: 0.5,
         }
     }
 
@@ -322,6 +353,7 @@ impl LineInstance {
             end: [end.x() as f32, end.y() as f32, end.z() as f32],
             color: FEED_MOVE_COLOR,
             stroke_width: DEFAULT_STROKE_WIDTH,
+            depth: 0.5,
         }
     }
 }
@@ -548,7 +580,8 @@ impl ToolInstance {
 pub struct Uniforms {
     /// Width and height of the surface.
     window_size: [f32; 2],
-    _pad0: [f32; 2],
+    /// Padding for alignment.
+    _pad1: [f32; 2],
     /// Maximum axis travels for each axis of the machine.
     /// The first three number correspond to X, Y, and Z axis travels respectively.
     /// The last value is used for alignment and is never used.
@@ -562,10 +595,9 @@ pub struct Uniforms {
     tool_size: f32,
     /// Length of the tool to render.
     tool_len: f32,
-    /// Padding for alignment.
-    _pad: f32,
     /// Active [`View`].
     view: View,
+    _pad2: f32,
 }
 
 impl Uniforms {
@@ -586,14 +618,14 @@ impl Uniforms {
 
         Self {
             window_size,
-            _pad0: [0.0, 0.0],
+            _pad1: [0.0, 0.0],
             projection: projection_matrix(view, scale, offset),
             max_travels,
             tool_color: TOOL_COLOR,
             tool_size: max_travels[0].abs() / 40.0,
             tool_len: max_travels[2].abs() / 2.0,
             view,
-            _pad: 0.0,
+            _pad2: 0.0,
         }
     }
 
