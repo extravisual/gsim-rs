@@ -786,7 +786,7 @@ impl Graphics {
 
         render_pass.set_pipeline(&self.tool_pipeline);
         render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
-        render_pass.draw(0..4320, 0..1);
+        render_pass.draw(0..864, 0..1);
 
         drop(render_pass);
 

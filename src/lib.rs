@@ -14,6 +14,21 @@ use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 /// Passed to both GUI and TUI.
 const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, 600.0);
 // const MACHINE_TRAVELS: Point = Point::new(600.0, 300.0, 300.0);
+// const MACHINE_TRAVELS: Point = Point::new(500.0, 500.0, 500.0);
+
+/// Represents the possible views that can be used in the [`Gui`] and controlled using [`Tui`].
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, bytemuck::Zeroable)]
+pub enum View {
+    /// Simuate all three axes, from **isometric view**.
+    #[default]
+    Isometric,
+    /// Simlutate `X` & `Y` axes, from **top view**.
+    Top,
+}
+
+// required for use in gui uniforms
+unsafe impl bytemuck::Pod for View {}
 
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
@@ -36,20 +51,6 @@ pub enum Signal {
     Proceed,
     Stop,
 }
-
-/// Represents the possible views that can be used in the [`Gui`] and controlled using [`Tui`].
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, bytemuck::Zeroable)]
-pub enum View {
-    /// Simlutate `X` & `Y` axes, from **top view**.
-    Top,
-    /// Simuate all three axes, from **isometric view**.
-    #[default]
-    Isometric,
-}
-
-// required for use in gui uniforms
-unsafe impl bytemuck::Pod for View {}
 
 /// Main entry point for the program.
 ///

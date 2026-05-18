@@ -223,8 +223,8 @@ impl Tui {
 
                         KeyCode::Char('v') => {
                             match self.view {
-                                View::Top => self.view = View::Isometric,
                                 View::Isometric => self.view = View::Top,
+                                View::Top => self.view = View::Isometric,
                             };
                             self.proxy.send_event(Command::SetView(self.view)).unwrap();
                         }
@@ -648,8 +648,8 @@ impl Tui {
         }
 
         active.push(match self.view {
-            View::Top => Span::styled("TOP", style),
             View::Isometric => Span::styled("ISOMETRIC", style),
+            View::Top => Span::styled("TOP", style),
         });
 
         if self.single {

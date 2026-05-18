@@ -1,11 +1,12 @@
 struct Uniforms {
     window_size: vec2<f32>,
-    padding: vec2<f32>,
+    _pad0: vec2<f32>,
     max_travels: vec4<f32>,
+    projection: mat4x4<f32>,
     tool_color: vec4<f32>,
     tool_size: f32,
     tool_len: f32,
-    scale: f32,
+    _pad: f32,
     view: u32,
 };
 
@@ -22,24 +23,9 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
 };
 
-const SQRT_2: f32 = 1.41421356;
-const SQRT_3: f32 = 1.73205081;
-
-fn iso_project(in: vec3<f32>) -> vec2<f32> {
-    // the arithemtic operations here assume winit coordinate system
-    // positive y and z will make the view go down in the window
-    return vec2<f32>(
-        (in.x + in.y) / SQRT_2,
-        (in.x - in.y - in.z) / SQRT_3,
-    );
-}
-
 fn clipped() -> VertexOutput {
     var clipped: VertexOutput;
-
-    clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.1);
-    clipped.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-
+    clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.0);
     return clipped;
 }
 
@@ -47,9 +33,9 @@ fn clipped() -> VertexOutput {
 // cylinder
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
-    // total points = 360 * 4 * 3 = 4320
-    // total triangles = 360 * 4
-    if index >= 4320 {
+    // total triangles = 360/5 * 4
+    // total vertices = 360/5 * 4 * 3 = 864
+    if index >= 864 {
         // not possible
         // clip out
         return clipped();
@@ -60,16 +46,16 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     // vertex of triangle to draw
     let vertex = index % 3;
     // what face of the cylinder does this triangle draw at a particular degree
-    let face = triangle / 360;
+    let face = triangle / 72;
 
     // angle in radians
-    let angle = radians(f32(triangle % 360));
-    let angle_next = radians(f32(triangle % 360) + 1.0);
+    let angle = radians(f32(triangle % 72) * 5.0);
+    let angle_next = radians(f32(triangle % 72) * 5.0 + 5.0);
 
     let tool_size = uniforms.tool_size;
     let tool_len = uniforms.tool_len;
 
-    var position: vec3<f32> = in.pos;
+    var position = vec4<f32>(in.pos, 1.0);
 
     switch vertex + face * 3u {
         case 11 {
@@ -150,62 +136,12 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     }
 
     let window_size = uniforms.window_size;
-    let padding = uniforms.padding;
-    let scale = uniforms.scale;
-    let max_travels = uniforms.max_travels;
-    let absolute_max_travels = abs(uniforms.max_travels);
-    let isometric = uniforms.view == 1;
 
     // convert position to number of pixels
-    position *= scale;
-    var clip_position: vec2<f32>;
-
-    if isometric {
-        // all values here are in winit window coordinate system
-        // down is y positive
-        clip_position = iso_project(position);
-
-        // origin is to be on left side of the screen, therefore no x offset
-        let y_offset = (window_size.y / 2.0) - ((absolute_max_travels.x - absolute_max_travels.y +
-        absolute_max_travels.z) / 2.0) * scale / SQRT_3;
-
-        clip_position.x += padding.x;
-        clip_position.y += y_offset;
-    } else {
-        clip_position = position.xy;
-
-        // position on screen with respect to the window coordinate system(0 on top left corner)
-        // without padding
-        if max_travels.x >= 0.0 {
-            if max_travels.y >= 0.0 {
-                // machine zero on lower left corner, all positive vals
-                clip_position.x += padding.x;
-                clip_position.y = (window_size.y - clip_position.y) - padding.y;
-            } else {
-                // machine zero on top left corner, negative y vals
-                clip_position.x += padding.x;
-                clip_position.y = abs(clip_position.y) + padding.y;
-            }
-        } else {
-            if max_travels.y >= 0.0 {
-                // machine zero on lower right corner, negative x vals
-                clip_position.x = (window_size.x - abs(clip_position.x)) + padding.x;
-                clip_position.y += padding.y;
-            } else {
-                // machine zero on top right corner, all negative vals
-                clip_position.x = (window_size.x - abs(clip_position.x)) + padding.x;
-                clip_position.y = abs(clip_position.y) + padding.y;
-            }
-        }
-    }
-
-    // flip y to match coordinate system of clip space
-    clip_position.x = (clip_position.x / window_size.x) * 2.0 - 1.0;
-    clip_position.y = 1.0 - (clip_position.y / window_size.y) * 2.0;
+    position = uniforms.projection * position;
 
     var out: VertexOutput;
-
-    out.clip_position = vec4<f32>(clip_position, 0.1, 1.0);
+    out.clip_position = vec4<f32>((position.xy / window_size * 2.0), 0.0, 1.0);
     out.color = uniforms.tool_color;
 
     return out;

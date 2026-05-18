@@ -1,3 +1,4 @@
+// all geometry assumes all axis values will be positive
 use crate::{
     View,
     machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
@@ -10,10 +11,11 @@ const SHOW_MACHINE_BOUNDARY: bool = false;
 const SHOW_GRID: bool = true;
 const SHOW_ORIGIN: bool = true;
 
-const DEFAULT_STROKE_WIDTH: f32 = 0.004;
+const DEFAULT_STROKE_WIDTH: f32 = 2.5;
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
+const MACHINE_INSET: f32 = 10.0; // additional to machine boundary offset
 const ORIGIN_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
-const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.8;
+const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.5;
 
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [0.69, 0.69, 0.69]; // noice
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.05, 0.05];
@@ -25,7 +27,10 @@ const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
 
 const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 // units travelled per frame
-const SPEED: f64 = 5.0;
+const SPEED: f64 = 10.0;
+
+const COS30: f32 = 0.86602540378;
+const SIN30: f32 = 0.5;
 
 /// Configuration of fixed [`LineInstance`]s that can be toggled.
 #[derive(Clone, Copy)]
@@ -543,32 +548,28 @@ impl ToolInstance {
 pub struct Uniforms {
     /// Width and height of the surface.
     window_size: [f32; 2],
-    /// Padding to center the machine view in pixels.
-    /// This changes based on the active [`View`] and [`Self::window_size`].
-    padding: [f32; 2],
+    _pad0: [f32; 2],
     /// Maximum axis travels for each axis of the machine.
     /// The first three number correspond to X, Y, and Z axis travels respectively.
     /// The last value is used for alignment and is never used.
     max_travels: [f32; 4],
+    /// View matrix to center the machine volume and scale it to [`Self::window_size`].
+    /// Multiplication with this matrix results in **pixel** units.
+    projection: [[f32; 4]; 4],
     /// Color for rendering the [`ToolInstance`].
     tool_color: [f32; 4],
     /// Diameter of the tool to render.
     tool_size: f32,
     /// Length of the tool to render.
     tool_len: f32,
-    /// Absolute scaling factor to convert machine units to pixels.
-    /// This is in **pixels per machine unit**,
-    /// and changes based on the active [`View`] and [`Self::window_size`].
-    scale: f32,
+    /// Padding for alignment.
+    _pad: f32,
     /// Active [`View`].
     view: View,
 }
 
 impl Uniforms {
-    /// Constructs a new [`Uniforms`] with view set to [`View::default`].
-    ///
-    /// [`Self::scale`] and [`Self::padding`] values are calculated based on [`View::default`],
-    /// and the provided `window_size` and `max_travels`.
+    /// Constructs a new [`Uniforms`] with `view` set to [`View::default`].
     pub fn new(window_size: PhysicalSize<u32>, max_travels: Point) -> Self {
         let window_size = [window_size.width as f32, window_size.height as f32];
         let max_travels = [
@@ -581,17 +582,18 @@ impl Uniforms {
 
         let machine_size = machine_size(max_travels.as_slice(), view);
         let scale = scale(window_size, machine_size);
-        let padding = padding(window_size, machine_size, scale);
+        let offset = offset(max_travels, machine_size, scale, view);
 
         Self {
             window_size,
-            padding,
+            _pad0: [0.0, 0.0],
+            projection: projection_matrix(view, scale, offset),
             max_travels,
             tool_color: TOOL_COLOR,
             tool_size: max_travels[0].abs() / 40.0,
             tool_len: max_travels[2].abs() / 2.0,
             view,
-            scale,
+            _pad: 0.0,
         }
     }
 
@@ -599,8 +601,9 @@ impl Uniforms {
     pub fn resize(&mut self, window_size: PhysicalSize<u32>) {
         self.window_size = [window_size.width as f32, window_size.height as f32];
         let machine_size = machine_size(self.max_travels.as_slice(), self.view);
-        self.scale = scale(self.window_size, machine_size);
-        self.padding = padding(self.window_size, machine_size, self.scale);
+        let scale = scale(self.window_size, machine_size);
+        let offset = offset(self.max_travels, machine_size, scale, self.view);
+        self.projection = projection_matrix(self.view, scale, offset);
     }
 
     /// Returns the active [`View`].
@@ -633,13 +636,15 @@ impl Uniforms {
 /// Returns the size of a rectangle that would be needed to fit a machine with `max_travels`,
 /// rendered from the provided [`View`].
 ///
+/// Does not account for **machine boundary width**.
+///
 /// The returned size will be in the same units as `max_travels`.
 fn machine_size(max_travels: &[f32], view: View) -> [f32; 2] {
     match view {
-        // use x and y of the machine
-        View::Top => [max_travels[0].abs(), max_travels[1].abs()],
         // use projection of the bounding box to get final x and y
         View::Isometric => project_bounding_box(max_travels),
+        // use x and y of the machine
+        View::Top => [max_travels[0], max_travels[1]],
     }
 }
 
@@ -649,41 +654,72 @@ fn machine_size(max_travels: &[f32], view: View) -> [f32; 2] {
 /// The returned size will be in the same units as `max_travels`.
 fn project_bounding_box(max_travels: &[f32]) -> [f32; 2] {
     [
-        (max_travels[0].abs() + max_travels[1].abs()) / 2.0_f32.sqrt(),
-        (max_travels[0].abs() + max_travels[1].abs() + max_travels[2].abs()) / 3.0_f32.sqrt(),
+        (max_travels[0] + max_travels[1]) * COS30,
+        (max_travels[0] + max_travels[1]) * SIN30 + max_travels[2],
     ]
 }
 
-/// Computes the scaling factor, in **pixels per machine unit**,
-/// that fits the machine inside the window.
+/// Computes the scaling factor, in **pixels per machine unit**
+/// that fits the machine inside the window,
+/// accounting for half of machine boundary extending over `machine_size` on each side and
+/// [`MACHINE_INSET`].
 ///
 /// The provided `machine_size` must be the size **AFTER** any projection.
 ///
-/// The returned scale will prioritize scaling the axis that is shorter relative to that of the window.
+/// The returned scale will prioritize fitting the axis that is longer relative to that of the window.
 fn scale(window_size: [f32; 2], machine_size: [f32; 2]) -> f32 {
     // y / x
-    let window_ratio = window_size[1] / window_size[0];
+    // compensate for half of the boundary width in window, per side, and apply any inset
+    let usable_width = window_size[0] - MACHINE_BOUNDARY_WIDTH - MACHINE_INSET;
+    let usable_height = window_size[1] - MACHINE_BOUNDARY_WIDTH - MACHINE_INSET;
+
+    let window_ratio = usable_height / usable_width;
     let machine_ratio = machine_size[1] / machine_size[0];
 
-    let scale = match machine_ratio.total_cmp(&window_ratio) {
+    match machine_ratio.total_cmp(&window_ratio) {
         // y of machine is smaller, scale to fit x of machine and shrink in y
-        Ordering::Less => window_size[0] / machine_size[0],
+        Ordering::Less => usable_width / machine_size[0],
         // choose any
-        Ordering::Equal => window_size[0] / machine_size[0],
+        Ordering::Equal => usable_width / machine_size[0],
         // y of machine is larger, scale to fit y of machine and shrink in x
-        Ordering::Greater => window_size[1] / machine_size[1],
-    };
-
-    // reduce scale to compensate for machine boundary thickness on both sides
-    scale - MACHINE_BOUNDARY_WIDTH
+        Ordering::Greater => usable_height / machine_size[1],
+    }
 }
 
-/// Computes the padding, in **pixels**, that centers the machine inside the window.
+/// Computes the offset, in **pixels** that centers the machine inside the window, for a [`View`].
 ///
 /// The provided `machine_size` must be the size **AFTER** any projection.
-fn padding(window_size: [f32; 2], machine_size: [f32; 2], scale: f32) -> [f32; 2] {
-    [
-        (window_size[0] - machine_size[0] * scale) / 2.0,
-        (window_size[1] - machine_size[1] * scale) / 2.0,
-    ]
+fn offset(max_travels: [f32; 4], machine_size: [f32; 2], scale: f32, view: View) -> [f32; 2] {
+    match view {
+        View::Isometric => [
+            // half of machine size works because 0 of machine will at the boundary
+            -(machine_size[0] * scale) / 2.0,
+            // half of machine size does not work because the y 0 of the machine view is not at the boundary
+            ((max_travels[0] - max_travels[1]) * SIN30 - max_travels[2]) * scale / 2.0,
+        ],
+        View::Top => [
+            -(machine_size[0] * scale) / 2.0,
+            -(machine_size[1] * scale) / 2.0,
+        ],
+    }
+}
+
+/// Constructs a view-projection matrix for a provided [`View`],
+/// scales the vertices & center the view volume using provided `offset`.
+fn projection_matrix(view: View, scale: f32, offset: [f32; 2]) -> [[f32; 4]; 4] {
+    // the actual matrix would visually be the transpose of the return value, row first
+    match view {
+        View::Isometric => [
+            [scale * COS30, -scale * SIN30, 0.0, 0.0],
+            [scale * COS30, scale * SIN30, 0.0, 0.0],
+            [0.0, scale, 0.0, 0.0],
+            [offset[0], offset[1], 0.0, 1.0],
+        ],
+        View::Top => [
+            [scale, 0.0, 0.0, 0.0],
+            [0.0, scale, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [offset[0], offset[1], 0.0, 1.0],
+        ],
+    }
 }

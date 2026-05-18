@@ -3,12 +3,13 @@
 
 struct Uniforms {
     window_size: vec2<f32>,
-    padding: vec2<f32>,
+    _pad0: vec2<f32>,
     max_travels: vec4<f32>,
+    projection: mat4x4<f32>,
     tool_color: vec4<f32>,
     tool_size: f32,
     tool_len: f32,
-    scale: f32,
+    _pad: f32,
     view: u32,
 };
 
@@ -28,121 +29,43 @@ struct VertexOutput {
     @location(0) color: vec3<f32>,
 };
 
-const SQRT_2: f32 = 1.41421356;
-const SQRT_3: f32 = 1.73205081;
-
-fn iso_project(in: vec3<f32>) -> vec2<f32> {
-    // the arithemtic operations here assume winit coordinate system
-    // positive y and z will make the view go down in the window
-    return vec2<f32>(
-        (in.x + in.y) / SQRT_2,
-        (in.x - in.y - in.z) / SQRT_3,
-    );
-}
-
 // mark as a valid vertex shader
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
-    // 0 stroke width is intentional and meant when the vertex is not to be shown
+    // exactly 0 stroke width is intentional and meant when the vertex is not to be shown
     if in.stroke_width == 0.0 {
         var clipped: VertexOutput;
-
-        clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.1);
-        clipped.color = vec3<f32>(0.0, 0.0, 0.0);
-
+        clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.0);
         return clipped;
     }
 
     let window_size = uniforms.window_size;
-    let max_travels = uniforms.max_travels;
-    let absolute_max_travels = abs(uniforms.max_travels);
     let stroke_width = in.stroke_width;
-    let scale = uniforms.scale;
-    let padding = uniforms.padding;
-    let isometric = uniforms.view == 1;
 
-    // number of pixels from the machine zero corner of screen
-    // (this corner may or may not be the 0 points of the window)
-    var _start = in.start * scale;
-    var _end = in.end * scale;
-
-    var start: vec2<f32>;
-    var end: vec2<f32>;
-
-    if isometric {
-        // all values here are in winit window coordinate system
-        // down is y positive
-        start = iso_project(_start);
-        end = iso_project(_end);
-
-        // origin is to be on left side of the screen, therefore no x offset
-        let y_offset = (window_size.y / 2.0) - ((absolute_max_travels.x - absolute_max_travels.y +
-        absolute_max_travels.z) / 2.0) * scale / SQRT_3;
-
-        start.x += padding.x;
-        start.y += y_offset;
-        end.x += padding.x;
-        end.y += y_offset;
-    } else {
-        start = _start.xy;
-        end = _end.xy;
-
-        // position on screen with respect to the window coordinate system(0 on top left corner)
-        // without padding
-        if max_travels.x >= 0.0 {
-            if max_travels.y >= 0.0 {
-                // machine zero on lower left corner, all positive vals
-                start.x += padding.x;
-                start.y = (window_size.y - start.y) - padding.y;
-                end.x += padding.x;
-                end.y = (window_size.y - end.y) - padding.y;
-            } else {
-                // machine zero on top left corner, negative y vals
-                start.x += padding.x;
-                start.y = abs(start.y) + padding.y;
-                end.x += padding.x;
-                end.y = abs(end.y) + padding.y;
-            }
-        } else {
-            if max_travels.y >= 0.0 {
-                // machine zero on lower right corner, negative x vals
-                start.x = (window_size.x - abs(start.x)) + padding.x;
-                start.y += padding.y;
-                end.x = (window_size.x - abs(end.x)) + padding.x;
-                end.y += padding.y;
-            } else {
-                // machine zero on top right corner, all negative vals
-                start.x = (window_size.x - abs(start.x)) + padding.x;
-                start.y = abs(start.y) + padding.y;
-                end.x = (window_size.x - abs(end.x)) + padding.x;
-                end.y = abs(end.y) + padding.y;
-            }
-        }
-    }
-
-    // flip y to match coordinate system of clip space
-    start.x = (start.x / window_size.x) * 2.0 - 1.0;
-    end.x = (end.x / window_size.x) * 2.0 - 1.0;
-    start.y = 1.0 - (start.y / window_size.y) * 2.0;
-    end.y = 1.0 - (end.y / window_size.y) * 2.0;
+    // scaled to fit the screen, in pixels
+    let start = uniforms.projection * vec4<f32>(in.start, 1.0);
+    let end = uniforms.projection * vec4<f32>(in.end, 1.0);
 
     // unit vector from start to end
     let dir = normalize(end - start);
     // normal vector, to get perpendicular direction, with magnitude of stroke width
     let normal = vec2<f32>(-dir.y, dir.x) * stroke_width / 2.0;
 
-    var p1 = vec2<f32>(start - normal);
-    var p2 = vec2<f32>(start + normal);
-    var p3 = vec2<f32>(end - normal);
-    var p4 = vec2<f32>(end + normal);
+    // 4 vertices to form a rectangular line
+    var v1 = vec2<f32>(start.xy - normal);
+    var v2 = vec2<f32>(start.xy + normal);
+    var v3 = vec2<f32>(end.xy - normal);
+    var v4 = vec2<f32>(end.xy + normal);
 
-    let positions = array(
-        p1, p2, p3, p2, p4, p3
+    let vertices = array(
+        v1, v2, v3, v2, v4, v3
     );
 
     var out: VertexOutput;
 
-    out.clip_position = vec4<f32>(positions[index], 0.0, 1.0);
+    // convert to ndc
+    // direction already match ndc
+    out.clip_position = vec4<f32>((vertices[index] / window_size * 2.0), 0.0, 1.0);
     out.color = in.color;
 
     return out;
