@@ -1,4 +1,28 @@
-// all geometry assumes all axis values will be positive
+//! # Geometry
+//!
+//! Constructs [`LineInstance`]s, [`ToolInstance`], and [`Uniforms`] values,
+//! to be uploaded to the vertex shader for simulation.
+//!
+//! [`LineInstance`]s depict toolpaths and static view objects,
+//! toggled by [`StaticConfig`]:
+//! - Machine Boundary Box
+//! - XY Plane Grid
+//! - Axis Pointers, rooted at Origin.
+//!
+//! ## Depth
+//! Each instance has a depth value that corresponds to the **z value in NDC**,
+//! in the vertex shader. `0.0` is choosen as the nearest plane, and `1.0` as the farthest.
+//! Instances are laid out in the following order of increasing depth:
+//! - Tool
+//! - Machine boundary
+//! - Origin axes
+//! - Tool paths
+//! - Grid
+//!
+//! ## Important
+//! Assumes that all the [`Machine`](crate::machine) positions and
+//! maximum travels are **positive**.
+
 use crate::{
     View,
     machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
@@ -11,11 +35,11 @@ const SHOW_MACHINE_BOUNDARY: bool = false;
 const SHOW_GRID: bool = true;
 const SHOW_ORIGIN: bool = true;
 
-const DEFAULT_STROKE_WIDTH: f32 = 2.5;
+const DEFAULT_STROKE_WIDTH: f32 = 2.0;
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
 const MACHINE_INSET: f32 = 10.0; // additional to machine boundary offset
 const ORIGIN_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
-const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.5;
+const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.75;
 
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [0.69, 0.69, 0.69]; // noice
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.05, 0.05];
@@ -29,7 +53,7 @@ const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 // units travelled per frame
 const SPEED: f64 = 10.0;
 
-const COS30: f32 = 0.86602540378;
+const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
 
 /// Configuration of fixed [`LineInstance`]s that can be toggled.
@@ -137,11 +161,26 @@ impl LineInstance {
 
     /// Generates a vector of [`LineInstance`]s which render the static geometry (boundary, grid,
     /// orgin), based on the maximum machine travels and [`StaticConfig`] supplied.
+    ///
+    /// The grid sits the farthest and machine boundary the nearest, with origin lines in between.
     pub fn statics(max_travels: Point, static_config: StaticConfig) -> Vec<Self> {
-        let mut ret = vec![];
         let x = max_travels.x() as f32;
         let y = max_travels.y() as f32;
         let z = max_travels.z() as f32;
+        let avg = (x + y + z) / 3.0;
+
+        // spacing between grid lines
+        let step = if avg > 750.0 {
+            100.0
+        } else if avg > 500.0 {
+            50.0
+        } else if avg > 250.0 {
+            25.0
+        } else {
+            10.0
+        };
+
+        let mut ret = Vec::with_capacity(12 + 3);
 
         let boundary_stroke_width = if static_config.machine_boundary {
             MACHINE_BOUNDARY_WIDTH
@@ -247,21 +286,21 @@ impl LineInstance {
         ret.extend_from_slice(&[
             Self {
                 start: [0.0, 0.0, 0.0],
-                end: [x * 2.0, 0.0, 0.0],
+                end: [x * 5.0, 0.0, 0.0],
                 color: X_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
                 depth: 0.25,
             },
             Self {
                 start: [0.0, 0.0, 0.0],
-                end: [0.0, y * 2.0, 0.0],
+                end: [0.0, y * 5.0, 0.0],
                 color: Y_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
                 depth: 0.25,
             },
             Self {
                 start: [0.0, 0.0, 0.0],
-                end: [0.0, 0.0, z * 2.0],
+                end: [0.0, 0.0, z * 5.0],
                 color: Z_AXIS_COLOR,
                 stroke_width: origin_stroke_width,
                 depth: 0.25,
@@ -269,23 +308,13 @@ impl LineInstance {
         ]);
 
         // grid
-        let step = if x > 1000.0 {
-            100.0
-        } else if x > 500.0 {
-            50.0
-        } else if x > 250.0 {
-            25.0
-        } else {
-            10.0
-        };
-
         let mut current_x = 0.0;
         let mut current_y = 0.0;
 
-        while current_x < x * 2.0 {
+        while current_x < x * 3.0 {
             ret.push(Self {
-                start: [current_x, -y * 2.0, 0.0],
-                end: [current_x, y * 2.0, 0.0],
+                start: [current_x, -y * 5.0, 0.0],
+                end: [current_x, y * 5.0, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
@@ -296,20 +325,20 @@ impl LineInstance {
         current_x = 0.0;
 
         while current_x > -x * 2.0 {
-            current_x -= step;
             ret.push(Self {
-                start: [current_x, -y * 2.0, 0.0],
-                end: [current_x, y * 2.0, 0.0],
+                start: [current_x, -y * 5.0, 0.0],
+                end: [current_x, y * 5.0, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
             });
+            current_x -= step;
         }
 
-        while current_y < y * 2.0 {
+        while current_y < y * 3.0 {
             ret.push(Self {
-                start: [-x * 2.0, current_y, 0.0],
-                end: [x * 2.0, current_y, 0.0],
+                start: [-x * 5.0, current_y, 0.0],
+                end: [x * 5.0, current_y, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
@@ -320,14 +349,14 @@ impl LineInstance {
         current_y = 0.0;
 
         while current_y > -y * 2.0 {
-            current_y -= step;
             ret.push(Self {
-                start: [-x * 2.0, current_y, 0.0],
-                end: [x * 2.0, current_y, 0.0],
+                start: [-x * 5.0, current_y, 0.0],
+                end: [x * 5.0, current_y, 0.0],
                 color: GRID_COLOR,
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
             });
+            current_y -= step;
         }
 
         ret

@@ -265,9 +265,9 @@ impl Tui {
 
     /// Executes the next block, which can be done in two ways:
     /// - For the first pass, each [`CodeBlock`] is executed with [`Interpreter::execute`] and the
-    /// resulting [`BlockSummary`] is stored in [`Tui::summaries`].
+    ///   resulting [`BlockSummary`] is stored in [`Tui::summaries`].
     /// - For repeat passes, only stored [`BlockSummary`]s are queried and no actual interpretation
-    /// or parsing takes place.
+    ///   or parsing takes place.
     ///
     /// Returns `true` when no [`MotionSummary`](crate::machine::MotionSummary) was found in the
     /// latest [`BlockSummary`], and another block needs to interpreted.
@@ -554,26 +554,23 @@ impl Tui {
             unit.clone(),
         ];
         // append feed if available
-        if let Some(feed) = machine.feed().clone() {
-            line1.extend(
-                vec![
-                    " | ".into(),
-                    Span::styled(
-                        "F",
-                        Style::default()
-                            .fg(Color::LightBlue)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    ": ".into(),
-                    feed.to_string().into(),
-                    unit,
-                    Span::from(match machine.feed_mode() {
-                        FeedMode::PerMinute => "/min",
-                        FeedMode::PerRev => "/rev",
-                    }),
-                ]
-                .into_iter(),
-            );
+        if let Some(feed) = *machine.feed() {
+            line1.extend(vec![
+                " | ".into(),
+                Span::styled(
+                    "F",
+                    Style::default()
+                        .fg(Color::LightBlue)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                ": ".into(),
+                feed.to_string().into(),
+                unit,
+                Span::from(match machine.feed_mode() {
+                    FeedMode::PerMinute => "/min",
+                    FeedMode::PerRev => "/rev",
+                }),
+            ]);
         }
 
         let line2 = vec![

@@ -193,7 +193,7 @@ impl Arc {
                 // in this method the distance between the points cannot be greater than the diameter
 
                 // new point not at the same distance.
-                if (end_planar.dist(&center) - radius).abs() > 1e-10 {
+                if (end_planar.dist(&center) - radius).abs() > 0.01 {
                     Err(MachineError::InvalidCircle(method))
                 } else {
                     Ok(Self {

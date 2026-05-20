@@ -36,8 +36,8 @@ pub struct Gui {
     signal: Sender<Signal>,
     /// Maximum travel lengths of the [`Machine`](crate::machine::Machine) being rendered.
     max_travels: Point,
-    /// Previously received [`Command`] from [`Tui`].
-    last_command: Option<Command>,
+    /// Currently processing [`Command`] received from [`Tui`].
+    current_command: Option<Command>,
     /// Active GPU graphics state. [`None`] before window creation.
     graphics: Option<Graphics>,
     /// Stores any errors that occur during [`Graphics::render`] call.
@@ -64,7 +64,7 @@ impl Gui {
         Ok(Self {
             signal,
             max_travels,
-            last_command: None,
+            current_command: None,
             graphics: None,
             error: None,
             static_config: StaticConfig::default(),
@@ -91,7 +91,7 @@ impl Gui {
 
         // prioritize tui thread error
         // check if the tui thread is still running, if so, tell it to stop
-        match self.last_command {
+        match self.current_command {
             // the tui thread signalled main thread to stop because of an error in tui thread
             Some(Command::Stop(Some(e))) => self.error = Some(e),
             Some(Command::Stop(None)) => (),
@@ -154,7 +154,7 @@ impl ApplicationHandler<Command> for Gui {
     ///
     /// On receiving [`WindowEvent::RedrawRequested`], updates simulation state, and:
     /// - Sends [`Signal::Proceed`] to [`Tui`],
-    /// if this redraw completely fulfils the last received [`Command::Render`].
+    ///   if this redraw completely fulfils the last received [`Command::Render`].
     /// - Requests another redraw to fulfil the last received [`Command::Render`].
     ///
     /// If [`Graphics::render`] fails, stores the error and exits the event loop.
@@ -176,7 +176,10 @@ impl ApplicationHandler<Command> for Gui {
                 let proceed = graphics.update();
 
                 if proceed {
-                    self.signal.send(Signal::Proceed).unwrap();
+                    // this may fail if the program is processing blocks quickly
+                    // and the tui receives quit signal from user and exits the loop,
+                    // the gui will then exit on next command execution.
+                    let _ = self.signal.send(Signal::Proceed);
                 };
 
                 match graphics.render() {
@@ -247,7 +250,7 @@ impl ApplicationHandler<Command> for Gui {
             }
         }
 
-        self.last_command = Some(event);
+        self.current_command = Some(event);
     }
 }
 
@@ -309,11 +312,11 @@ pub struct Graphics {
 impl Graphics {
     /// Constructs a new [`Graphics`] by initializing all GPU resources, including:
     /// - [`Uniforms`] buffer and bind group, to pass constant data to the [`ToolInstance`] and all
-    /// [`LineInstance`]s.
+    ///   [`LineInstance`]s.
     /// - [`LineInstance`] buffer and pipeline. Writes the static instances,
-    /// corresponding to the supplied [`StaticConfig`], to the beginning of [`Self::lines_buffer`].
+    ///   corresponding to the supplied [`StaticConfig`], to the beginning of [`Self::lines_buffer`].
     /// - [`ToolInstance`] buffer and pipeline. Creates a [`ToolInstance`],
-    /// with the tool at [`HOME_POS`], and writes it to [`Self::tool_buffer`].
+    ///   with the tool at [`HOME_POS`], and writes it to [`Self::tool_buffer`].
     ///
     /// Returns [`Error`](anyhow::Error) on failure to create any of the GPU resources.
     async fn build(
@@ -366,7 +369,7 @@ impl Graphics {
             .iter()
             .copied()
             .find(|format| format.is_srgb())
-            .unwrap_or(surface_caps.formats.get(0).expect("At least one format must be present, as the adapter is created to be compatible with the surface").clone());
+            .unwrap_or(*surface_caps.formats.first().expect("At least one format must be present, as the adapter is created to be compatible with the surface"));
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -634,7 +637,7 @@ impl Graphics {
     /// Subsequent instances are added in [`Self::update`],
     /// depending on the target geometry of [`LineInstances`]:
     /// - [`LineInstances::Linear`]: The new line instance is merged with the last instance in the
-    /// buffer, extending it.
+    ///   buffer, extending it.
     /// - [`LineInstances::Arc`]: The new line instances are added individually to the buffer.
     fn add(&mut self, mut instances: LineInstances) {
         let first = match &mut instances {
@@ -666,7 +669,7 @@ impl Graphics {
     /// Uploads the next [`LineInstance`] from [`Self::current_instances`] to
     /// [`Self::lines_buffer`], depending on the target geometry of [`LineInstances`]:
     /// - [`LineInstances::Linear`]: Merges the new line instance with the last instance in the
-    /// buffer, extending it.
+    ///   buffer, extending it.
     /// - [`LineInstances::Arc`]: Appends the new line instance individually to the buffer.
     ///
     /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the new line
