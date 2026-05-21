@@ -1,4 +1,9 @@
-// reference for stroke width:
+// Line
+//
+// Draws a straight line of specified thickness and color.
+// Depth of each line can be specified in range 0..1, 0.0 being the nearest plane.
+//
+// Reference:
 // https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl
 
 struct Uniforms {
@@ -29,6 +34,8 @@ struct VertexOutput {
     @location(0) color: vec3<f32>,
 };
 
+const smooth_step = 1.5;
+
 // mark as a valid vertex shader
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
@@ -48,7 +55,7 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     // unit vector from start to end
     let dir = normalize(end - start);
     // normal vector, to get perpendicular direction, with magnitude of stroke width
-    let normal = vec2<f32>(-dir.y, dir.x) * in.stroke_width / 2.0;
+    let normal = vec2<f32>(-dir.y, dir.x) * in.stroke_width * 0.5;
 
     // 4 vertices to form a rectangular line
     var v1 = vec2<f32>(start.xy - normal);
@@ -72,5 +79,5 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    return vec4<f32>(in.color, 0.5);
 }

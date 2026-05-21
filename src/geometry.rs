@@ -169,7 +169,7 @@ impl LineInstance {
         let z = max_travels.z() as f32;
         let avg = (x + y + z) / 3.0;
 
-        // spacing between grid lines
+        // grid square size, in machine units
         let step = if avg > 750.0 {
             100.0
         } else if avg > 500.0 {
@@ -474,8 +474,8 @@ impl LineInstances {
 
         // angular speed
         let step_angular = match arc.dir {
-            CircularDirection::Clockwise => 0.0 - SPEED / radius,
-            CircularDirection::CounterClockwise => SPEED / radius,
+            CircularDirection::Clockwise => 0.0 - SPEED / radius / 2.0,
+            CircularDirection::CounterClockwise => SPEED / radius / 2.0,
         };
         let steps_count = (sweep / step_angular).ceil().abs();
         let step_linear = match plane {

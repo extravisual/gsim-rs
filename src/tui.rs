@@ -194,14 +194,15 @@ impl Tui {
         loop {
             terminal.draw(|frame| self.draw(frame))?;
 
-            let signal = self.check_signal()?;
+            self.last_signal = self.check_signal()?;
 
-            match signal {
+            match self.last_signal {
                 Some(Signal::Proceed) => proceed = true,
                 Some(Signal::Stop) => return Ok(()),
                 None => (),
             };
 
+            #[allow(clippy::collapsible_if)]
             if proceed && !self.single && self.interrupt.is_none() && self.error.is_none() {
                 proceed = self.execute();
             } else if self.error.is_some() {
@@ -302,7 +303,9 @@ impl Tui {
         match block {
             Some(summary) => {
                 let proceed = if let Some(motion) = &summary.motion {
-                    self.proxy.send_event(Command::Render(*motion)).unwrap();
+                    // this could fail if the window is closed and the next signal from gui will be
+                    // signal::stop
+                    let _ = self.proxy.send_event(Command::Render(*motion));
                     false
                 } else {
                     match summary.mcode {

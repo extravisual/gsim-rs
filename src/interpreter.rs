@@ -157,10 +157,6 @@ impl Interpreter {
         let mut codes = vec![];
 
         for code in block.codes() {
-            // display is only implemented for variants that will not cause any errors
-            // and which do not fall through to excess codes
-            codes.push(code);
-
             match code {
                 Code::G(_) => unreachable!("The parser will not emit G code with other codes."),
                 Code::M(_) => unreachable!("The parser will not emit M code with other codes."),
@@ -188,8 +184,14 @@ impl Interpreter {
                 | Code::Z(_) => {
                     excess_codes.push(code).unwrap();
                     excess = true;
+                    continue; // do not add these codes to the summary
+                    // as they are meant to be consumed by the excess right after this
                 }
             };
+
+            // display is only implemented for variants that will not cause any errors
+            // and which do not fall through to excess codes
+            codes.push(code);
         }
 
         if excess {

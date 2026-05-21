@@ -193,7 +193,8 @@ impl Arc {
                 // in this method the distance between the points cannot be greater than the diameter
 
                 // new point not at the same distance.
-                if (end_planar.dist(&center) - radius).abs() > 0.01 {
+                // tolerance should be a little lenient
+                if (end_planar.dist(&center) - radius).abs() > 1e-5 {
                     Err(MachineError::InvalidCircle(method))
                 } else {
                     Ok(Self {
@@ -253,7 +254,7 @@ impl Arc {
                 let bisector = (radius.powi(2) - dist.powi(2)).sqrt();
 
                 // if points are on the diameter make midpoint is the center
-                let center = if (2.0 * radius - dist).abs() < 1e-10 {
+                let center = if (2.0 * radius - dist).abs() < 1e-5 {
                     midpoint
                 } else {
                     // TODO create diagram to prove the result for all 4 quadrants
