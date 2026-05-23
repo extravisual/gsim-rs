@@ -18,12 +18,13 @@ use ratatui::{
     },
     layout::{Constraint, Direction, Layout, Rect},
     prelude::{Backend, CrosstermBackend},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Padding, Paragraph},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
 };
 use std::{
     error::Error,
+    fmt::Display,
     io::Stdout,
     sync::mpsc::{Receiver, TryRecvError},
     time::Duration,
@@ -32,7 +33,7 @@ use winit::event_loop::EventLoopProxy;
 
 #[allow(unused_imports)]
 use crate::{
-    Command, Signal, View,
+    BOUNDARY, Command, GRID, ORIGIN, SINGLE, Signal, TOOL, View,
     config::Config,
     gui::Gui,
     interpreter::InterpreterError,
@@ -50,16 +51,60 @@ const MAX_PREVIEW_AHEAD: usize = 10;
 
 /// Represents the types of program cycle interruptions.
 /// These interruptions need user input to be removed and resume cycle.
-pub enum Interrupt {
+enum Interrupt {
     /// Confirm program start or restart.
     Start,
     /// M00 program stop detected.
     Stop,
     /// M01 optional program stop detected.
     OptionalStop,
-    /// M30 Program end detected.
+    /// M30 program end detected.
     End,
 }
+
+impl Display for Interrupt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            Interrupt::Start => "START INTERRUPT",
+            Interrupt::Stop => "STOP INTERRUPT",
+            Interrupt::OptionalStop => "OPTIONAL STOP INTERRUPT",
+            Interrupt::End => "END INTERRUPT",
+        };
+
+        write!(f, "{string}")
+    }
+}
+
+/// Represents styling for each section of the [`Tui`].
+struct Theme {
+    root: Style,
+    title: Style,
+    block_title: Style,
+    interrupt: Style,
+    summary: Style,
+    machine: Style,
+    active_mode: Style,
+    inactive_mode: Style,
+    key: Style,
+    key_desc: Style,
+}
+
+/// Hex encoded default background color.
+const BG: Color = Color::from_u32(0x001e1e1e);
+
+/// Default [`Theme`] for the [`Tui`].
+const THEME: Theme = Theme {
+    root: Style::new().bg(BG).fg(Color::White),
+    title: Style::new().fg(Color::Red).bg(BG).bold(),
+    block_title: Style::new().fg(Color::LightGreen).bold(),
+    interrupt: Style::new().fg(Color::Black).bg(Color::White).bold(),
+    summary: Style::new().fg(Color::Blue).bg(BG).bold(),
+    machine: Style::new().fg(Color::LightBlue).bg(BG).bold(),
+    active_mode: Style::new().fg(Color::LightBlue).bg(BG).bold(),
+    inactive_mode: Style::new().fg(Color::Gray).bg(BG),
+    key: Style::new().fg(Color::Black).bg(Color::DarkGray).bold(),
+    key_desc: Style::new().fg(Color::DarkGray).bg(Color::Black),
+};
 
 /// Represents the current state of the [`Tui`](crate::tui).
 pub struct Tui {
@@ -71,6 +116,14 @@ pub struct Tui {
     view: View,
     /// Single step through code blocks.
     single: bool,
+    /// Tool visibility flag.
+    tool: bool,
+    /// XY plane grid visibility flag.
+    grid: bool,
+    /// Axes rooted at origin visibility flag.
+    origin: bool,
+    /// Machine boundary box visibility flag.
+    boundary: bool,
     /// Parsed source loaded [`Interpreter`], ready for iteration.
     interpreter: Interpreter,
     /// Index of current block being executed for preview.
@@ -112,7 +165,11 @@ impl Tui {
             signal,
             proxy,
             view: View::default(),
-            single: false,
+            single: SINGLE,
+            tool: TOOL,
+            grid: GRID,
+            origin: ORIGIN,
+            boundary: BOUNDARY,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
                 Machine::build(max_travels, Unit::default())?,
@@ -210,7 +267,9 @@ impl Tui {
                 if poll(Duration::from_millis(100))? {
                     if let Event::Key(key) = event::read()?
                         && key.kind != event::KeyEventKind::Release
-                        && key.code == KeyCode::Enter
+                        && (key.code == KeyCode::Enter
+                            || key.code == KeyCode::Char('Q')
+                            || key.code == KeyCode::Esc)
                     {
                         return Err(self.error.take().unwrap().into());
                     }
@@ -232,16 +291,29 @@ impl Tui {
 
                         KeyCode::Char('s') => self.single = !self.single,
 
-                        KeyCode::Char('b') => self
-                            .proxy
-                            .send_event(Command::ToggleMachineBoundary)
-                            .unwrap(),
+                        KeyCode::Char('b') => {
+                            self.boundary = !self.boundary;
+                            self.proxy
+                                .send_event(Command::SetBoundary(self.boundary))
+                                .unwrap()
+                        }
 
-                        KeyCode::Char('g') => self.proxy.send_event(Command::ToggleGrid).unwrap(),
+                        KeyCode::Char('g') => {
+                            self.grid = !self.grid;
+                            self.proxy.send_event(Command::SetGrid(self.grid)).unwrap()
+                        }
 
-                        KeyCode::Char('o') => self.proxy.send_event(Command::ToggleOrigin).unwrap(),
+                        KeyCode::Char('o') => {
+                            self.origin = !self.origin;
+                            self.proxy
+                                .send_event(Command::SetOrigin(self.origin))
+                                .unwrap()
+                        }
 
-                        KeyCode::Char('t') => self.proxy.send_event(Command::ToggleTool).unwrap(),
+                        KeyCode::Char('t') => {
+                            self.tool = !self.tool;
+                            self.proxy.send_event(Command::SetTool(self.tool)).unwrap()
+                        }
 
                         KeyCode::Char('n') if proceed && self.interrupt.is_none() => {
                             proceed = self.execute();
@@ -346,152 +418,158 @@ impl Tui {
     /// Prepares individual sections of the terminal screen,
     /// and draws the current state of [`Tui`] in the said sections.
     fn draw(&self, frame: &mut Frame) {
-        let chunks = Layout::default()
+        let main_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
+            .constraints([
+                Constraint::Percentage(100),
+                Constraint::Min(6),
+                Constraint::Min(5),
+                Constraint::Min(4),
+            ])
             .split(frame.area());
 
         let top_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-            .split(chunks[0]);
+            .split(main_chunks[0]);
 
-        let right_chunks = Layout::default()
+        let left_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-            ])
-            .split(top_chunks[1]);
+            .constraints([Constraint::Min(3), Constraint::Percentage(100)])
+            .split(top_chunks[0]);
 
-        let bottom_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
-            .split(chunks[1]);
-
-        frame.render_widget(self.main_widget(), top_chunks[0]);
-        frame.render_widget(self.preview_widget(), right_chunks[0]);
-        frame.render_widget(self.machine_widget(), right_chunks[1]);
-        frame.render_widget(self.active_widget(), right_chunks[2]);
-        frame.render_widget(self.title_widget(), bottom_chunks[0]);
-        frame.render_widget(self.keys_widget(), bottom_chunks[1]);
+        frame.render_widget(self.title_text(), left_chunks[0]);
+        frame.render_widget(self.summary_widget(), left_chunks[1]);
+        frame.render_widget(self.preview_widget(), top_chunks[1]);
+        frame.render_widget(self.machine_widget(), main_chunks[1]);
+        frame.render_widget(self.modes_widget(), main_chunks[2]);
+        frame.render_widget(self.keys_widget(), main_chunks[3]);
 
         // present error, if any
         if let Some(e) = &self.error {
-            let mut error_lines = vec![e.to_string()];
+            let mut error_lines = vec![e.to_string(), "\n".to_string()];
             let mut source = e.source();
 
             while let Some(cause) = source {
-                error_lines.push(format!("caused by: {cause}"));
+                error_lines.push(format!("caused by:\n{cause}"));
                 source = cause.source();
             }
 
-            let popup = Paragraph::new(error_lines.join("\n")).block(
-                Block::default()
-                    .title("Alarm")
-                    .borders(Borders::ALL)
-                    .style(Style::default().bg(Color::DarkGray)),
-            );
+            let popup = Paragraph::new(error_lines.join("\n"))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .padding(Padding::symmetric(2, 1))
+                        .borders(Borders::ALL)
+                        .title(Line::styled("Alarm", THEME.title).centered()) // use program title
+                        .style(THEME.root),
+                )
+                .centered();
 
-            let area = get_centered(60, 25, frame.area());
+            let area = get_centered(75, 40, frame.area());
+            frame.render_widget(Clear, area);
             frame.render_widget(popup, area);
         }
     }
 
+    /// Generates a styled [`Paragraph`] with **program title**.
+    fn title_text(&self) -> Paragraph<'_> {
+        Paragraph::new("GSim-rs")
+            .style(THEME.title)
+            .block(Block::default().padding(Padding::symmetric(1, 1)))
+            .centered()
+    }
+
     /// Generates a styled [`Paragraph`] using the [`BlockSummary`] for current block.
-    fn main_widget(&self) -> Paragraph<'_> {
-        if let Some(interrupt) = &self.interrupt {
-            let style = Style::default()
-                .fg(Color::Blue)
-                .add_modifier(Modifier::BOLD);
-
-            let mut interrupt = vec![match interrupt {
-                Interrupt::Start => Span::styled("START", style),
-                Interrupt::Stop => Span::styled("STOP", style),
-                Interrupt::OptionalStop => Span::styled("OPTIONAL STOP", style),
-                Interrupt::End => Span::styled("END", style),
-            }];
-
-            interrupt.push(" interrupt detected.".into());
-
-            let command = vec![
-                "Press ".into(),
-                Span::styled("Enter", style),
-                " to remove the interrupt.".into(),
-            ];
-
-            Paragraph::new(Text::from(vec![interrupt.into(), command.into()]))
-                .block(Block::default().style(Style::default()))
-                .centered()
+    fn summary_widget(&self) -> Paragraph<'_> {
+        let lines = if let Some(interrupt) = &self.interrupt {
+            vec![
+                Line::from(vec![
+                    Span::styled(interrupt.to_string(), THEME.interrupt),
+                    Span::styled(" detected.", THEME.root),
+                ]),
+                Line::default(),
+                Line::from(vec![
+                    Span::styled("Press ", THEME.root),
+                    Span::styled("Enter", THEME.interrupt),
+                    Span::styled(" to remove the interrupt.", THEME.root),
+                ]),
+            ]
         } else {
             let summary = self
                 .summaries
                 .get(self.current.saturating_sub(1))
                 .expect("App module has pushed the text descriptions for the current block.");
 
-            let mut lines = vec![];
+            let gcodes_len = summary.gcodes.len();
+            let mcode_some = summary.mcode.is_some();
+            let codes_len = summary.codes.len();
 
-            #[allow(irrefutable_let_patterns)]
-            if !summary.gcodes.is_empty()
-                && let multiple = summary.gcodes.len() > 1
-            {
+            // preallocate based on lengths
+            let mut lines = Vec::with_capacity(
+                if gcodes_len > 0 { gcodes_len + 2 } else { 0 }
+                    + if mcode_some { 3 } else { 0 }
+                    + if codes_len > 0 { codes_len + 1 } else { 0 },
+            );
+
+            if gcodes_len > 0 {
                 lines.push(Line::styled(
-                    if multiple { "GCODES:" } else { "GCODE:" },
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
+                    if gcodes_len > 1 { "GCODES:" } else { "GCODE:" },
+                    THEME.summary,
                 ));
                 for gcode in &summary.gcodes {
-                    lines.push(Line::styled(gcode.to_string(), Style::default()));
+                    lines.push(Line::styled(gcode.to_string(), THEME.root));
                 }
-                lines.push(Line::from(""));
+                lines.push(Line::default());
             };
 
             if let Some(mcode) = summary.mcode.clone() {
-                lines.push(Line::styled(
-                    "MCODE:",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ));
-                lines.push(Line::styled(mcode.to_string(), Style::default()));
-                lines.push(Line::from(""));
+                lines.push(Line::styled("MCODE:", THEME.summary));
+                lines.push(Line::styled(mcode.to_string(), THEME.root));
+                lines.push(Line::default());
             }
 
-            #[allow(irrefutable_let_patterns)]
-            if !summary.codes.is_empty()
-                && let multiple = summary.codes.len() > 1
-            {
+            if codes_len > 0 {
                 lines.push(Line::styled(
-                    if multiple {
+                    if codes_len > 1 {
                         "Other CODES:"
                     } else {
                         "Other CODE:"
                     },
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
+                    THEME.summary,
                 ));
                 for code in &summary.codes {
-                    lines.push(Line::styled(code.to_string(), Style::default()));
+                    lines.push(Line::styled(code.to_string(), THEME.root));
                 }
             };
 
-            Paragraph::new(lines)
-        }
+            lines
+        };
+
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .padding(Padding::symmetric(2, 1))
+                    .borders(Borders::TOP)
+                    .title(Line::styled("Summary", THEME.block_title).centered())
+                    .style(THEME.root),
+            )
+            .centered()
     }
 
     /// Generates a styled [`Paragraph`] with loaded [`Source`].
     /// One line of context is also provided in the preview.
     fn preview_widget(&self) -> Paragraph<'_> {
-        let mut lines = vec![];
+        // preallocate for max look ahead plus current and context line.
+        let mut lines = Vec::with_capacity(MAX_PREVIEW_AHEAD + 2);
 
+        // although we are subtracting 2 this will only start
         let mut current = self.current.saturating_sub(2);
 
         while let Some(line) = self.interpreter.get_line(current)
             && current < self.current + MAX_PREVIEW_AHEAD
         {
+            // do not highlight current line if Interrupt::Start is detected
             if current == self.current.saturating_sub(1)
                 && !matches!(self.interrupt, Some(Interrupt::Start))
             {
@@ -506,73 +584,62 @@ impl Tui {
             current += 1;
         }
 
-        Paragraph::new(Text::from(lines))
-            .style(Style::default().fg(Color::White))
-            .block(
-                Block::default()
-                    .padding(Padding::horizontal(2))
-                    .borders(Borders::TOP | Borders::LEFT)
-                    .title(Line::styled("Preview", Style::default().fg(Color::Yellow)).centered())
-                    .style(Style::default()),
-            )
+        Paragraph::new(lines).block(
+            Block::default()
+                .padding(Padding::symmetric(3, 1))
+                .borders(Borders::TOP | Borders::LEFT)
+                .title(Line::styled("Preview", THEME.block_title).centered())
+                .style(THEME.root),
+        )
     }
 
     /// Generates a styled [`Paragraph`] showing the state of [`Machine`].
     fn machine_widget(&self) -> Paragraph<'_> {
         let machine = self.interpreter.machine();
-        let unit = Span::from(match machine.units() {
-            Unit::Imperial => "in",
-            Unit::Metric => "mm",
-        });
+        let pos = machine.pos();
+        let unit = Span::styled(
+            match machine.units() {
+                Unit::Imperial => " in",
+                Unit::Metric => " mm",
+            },
+            THEME.root,
+        );
 
         let mut line1 = vec![
-            Span::styled(
-                "X",
-                Style::default()
-                    .fg(Color::LightBlue)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            ": ".into(),
-            machine.pos().x().to_string().into(),
+            Span::styled("X", THEME.machine),
+            Span::styled(": ", THEME.root),
+            Span::styled(pos.x().to_string(), THEME.root.bold()),
             unit.clone(),
-            " | ".into(),
-            Span::styled(
-                "Y",
-                Style::default()
-                    .fg(Color::LightBlue)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            ": ".into(),
-            machine.pos().y().to_string().into(),
+            Span::styled(" | ", THEME.root),
+            Span::styled("Y", THEME.machine),
+            Span::styled(": ", THEME.root),
+            Span::styled(pos.y().to_string(), THEME.root.bold()),
             unit.clone(),
-            " | ".into(),
-            Span::styled(
-                "Z",
-                Style::default()
-                    .fg(Color::LightBlue)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            ": ".into(),
-            machine.pos().z().to_string().into(),
+            Span::styled(" | ", THEME.root),
+            Span::styled("Z", THEME.machine),
+            Span::styled(": ", THEME.root),
+            Span::styled(pos.z().to_string(), THEME.root.bold()),
             unit.clone(),
+            Span::styled(" | ", THEME.root),
+            Span::styled("T", THEME.machine),
+            Span::styled(": ", THEME.root),
+            Span::styled(machine.tool().to_string(), THEME.root.bold()),
         ];
         // append feed if available
         if let Some(feed) = *machine.feed() {
             line1.extend(vec![
-                " | ".into(),
-                Span::styled(
-                    "F",
-                    Style::default()
-                        .fg(Color::LightBlue)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                ": ".into(),
-                feed.to_string().into(),
+                Span::styled(" | ", THEME.root),
+                Span::styled("F", THEME.machine),
+                Span::styled(": ", THEME.root),
+                Span::styled(feed.to_string(), THEME.root.bold()),
                 unit,
-                Span::from(match machine.feed_mode() {
-                    FeedMode::PerMinute => "/min",
-                    FeedMode::PerRev => "/rev",
-                }),
+                Span::styled(
+                    match machine.feed_mode() {
+                        FeedMode::PerMinute => "/min",
+                        FeedMode::PerRev => "/rev",
+                    },
+                    THEME.root,
+                ),
             ]);
         }
 
@@ -584,136 +651,150 @@ impl Tui {
                     Motion::Arc(CircularDirection::Clockwise) => "CLOCKWISE",
                     Motion::Arc(CircularDirection::CounterClockwise) => "ANTICLOCKWISE",
                 },
-                Style::default().fg(Color::Blue),
+                THEME.machine,
             ),
-            " | ".into(),
+            Span::styled(" | ", THEME.root),
             Span::styled(
                 match machine.plane() {
                     Plane::XY => "XY",
                     Plane::XZ => "XZ",
                     Plane::YZ => "YZ",
                 },
-                Style::default().fg(Color::Blue),
+                THEME.machine,
             ),
-            " | ".into(),
-            Span::styled(
-                match machine.positioning() {
-                    Positioning::Absolute => "ABSOLUTE",
-                    Positioning::Incremental => "INCREMENTAL",
-                },
-                Style::default().fg(Color::Blue),
-            ),
-            " | ".into(),
+            Span::styled(" | ", THEME.root),
             Span::styled(
                 match machine.code_units() {
                     Unit::Imperial => "IMPERIAL",
                     Unit::Metric => "METRIC",
                 },
-                Style::default().fg(Color::Blue),
+                THEME.machine,
+            ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                match machine.positioning() {
+                    Positioning::Absolute => "ABSOLUTE",
+                    Positioning::Incremental => "INCREMENTAL",
+                },
+                THEME.machine,
             ),
         ];
 
-        Paragraph::new(Text::from(vec![line1.into(), line2.into()]))
-            .style(Style::default().fg(Color::White))
+        Paragraph::new(vec![line1.into(), line2.into()])
             .block(
                 Block::default()
-                    .borders(Borders::TOP | Borders::LEFT)
-                    .title(
-                        Line::styled("Machine State", Style::default().fg(Color::Yellow))
-                            .centered(),
-                    )
-                    .style(Style::default()),
+                    .padding(Padding::symmetric(3, 1))
+                    .borders(Borders::TOP)
+                    .title(Line::styled("Machine State", THEME.block_title).centered())
+                    .style(THEME.root),
             )
             .centered()
     }
 
-    /// Generates a styled [`Paragraph`] showing the active state of [`Tui`] .
-    fn active_widget(&self) -> Paragraph<'_> {
-        let mut active = vec![];
-        let style = Style::default()
-            .fg(Color::LightYellow)
-            .add_modifier(Modifier::BOLD);
+    /// Generates a styled [`Paragraph`] showing the active state of [`Tui`] & [`Gui`].
+    fn modes_widget(&self) -> Paragraph<'_> {
+        // preallocate for a few modes
+        let modes = vec![
+            Span::styled(self.view.to_string(), THEME.active_mode),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                "SINGLE",
+                if self.single {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                "TOOL",
+                if self.tool {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                "GRID",
+                if self.grid {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                "ORIGIN",
+                if self.origin {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                "BOUNDARY",
+                if self.boundary {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
+        ];
 
-        if let Some(interrupt) = &self.interrupt {
-            active.push(match interrupt {
-                Interrupt::Start => Span::styled("START INTERRUPT", style),
-
-                Interrupt::Stop => Span::styled("STOP INTERRUPT", style),
-
-                Interrupt::OptionalStop => Span::styled("OPTIONAL STOP INTERRUPT", style),
-
-                Interrupt::End => Span::styled("END INTERRUPT", style),
-            });
-            active.push(Span::from(" | "));
-        }
-
-        active.push(match self.view {
-            View::Isometric => Span::styled("ISOMETRIC", style),
-            View::Top => Span::styled("TOP", style),
-        });
-
-        if self.single {
-            active.push(Span::from(" | "));
-            active.push(Span::styled("SINGLE", style));
-        }
-
-        Paragraph::new(Line::from(active))
-            .style(Style::default().fg(Color::White))
+        Paragraph::new(Line::from(modes))
             .block(
                 Block::default()
-                    .borders(Borders::TOP | Borders::LEFT)
-                    .title(Line::styled("Active", Style::default().fg(Color::Yellow)).centered())
-                    .style(Style::default()),
-            )
-            .centered()
-    }
-
-    /// Generates a styled [`Paragraph`] with **program title**.
-    fn title_widget(&self) -> Paragraph<'_> {
-        Paragraph::new("GSim-RS")
-            .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
-            .block(
-                Block::default()
-                    .borders(Borders::TOP | Borders::RIGHT)
-                    .style(Style::default()),
+                    .padding(Padding::symmetric(3, 1))
+                    .borders(Borders::TOP)
+                    .title(Line::styled("Active Modes", THEME.block_title).centered())
+                    .style(THEME.root),
             )
             .centered()
     }
 
     /// Generates a styled [`Paragraph`] with **possible keys inputs**.
+    /// # Reference
+    /// [`Github`](https://github.com/ratatui/ratatui/blob/main/examples/apps/demo2/src/app.rs)
     fn keys_widget(&self) -> Paragraph<'_> {
-        let mut keys = vec![
-            Span::styled("Q", Style::default().fg(Color::Yellow)),
-            ": quit / ".into(),
-            Span::styled("v", Style::default().fg(Color::Yellow)),
-            ": toggle view / ".into(),
-            Span::styled("s", Style::default().fg(Color::Yellow)),
-            ": toggle single / ".into(),
-            Span::styled("g", Style::default().fg(Color::Yellow)),
-            ": toggle grid / ".into(),
-            Span::styled("o", Style::default().fg(Color::Yellow)),
-            ": toggle origin / ".into(),
-            Span::styled("b", Style::default().fg(Color::Yellow)),
-            ": toggle machine boundary / ".into(),
-            Span::styled("t", Style::default().fg(Color::Yellow)),
-            ": toggle tool".into(),
+        let mut spans1 = vec![
+            Span::styled("  Q  ", THEME.key),
+            Span::styled(" Quit ", THEME.key_desc),
+            Span::styled("  v  ", THEME.key),
+            Span::styled(" Switch View ", THEME.key_desc),
+            Span::styled("  s  ", THEME.key),
+            Span::styled(" Toggle Single ", THEME.key_desc),
         ];
 
         if self.single && self.interrupt.is_none() {
-            keys.push(" / ".into());
-            keys.push(Span::styled("n", Style::default().fg(Color::Yellow)));
-            keys.push(": next block".into());
+            spans1.push(Span::styled("  n  ", THEME.key));
+            spans1.push(Span::styled(" Next Block ", THEME.key_desc));
         }
 
-        Paragraph::new(Line::from(keys))
-            .style(Style::default().fg(Color::White))
-            .block(
-                Block::default()
-                    .borders(Borders::TOP | Borders::LEFT)
-                    .title(Line::styled("Commands", Style::default().fg(Color::Yellow)).centered())
-                    .style(Style::default()),
-            )
-            .centered()
+        let spans2 = vec![
+            Span::styled("  t  ", THEME.key),
+            Span::styled(" Toggle Tool ", THEME.key_desc),
+            Span::styled("  g  ", THEME.key),
+            Span::styled(" Toggle Grid ", THEME.key_desc),
+            Span::styled("  o  ", THEME.key),
+            Span::styled(" Toggle Origin ", THEME.key_desc),
+            Span::styled("  b  ", THEME.key),
+            Span::styled(" Toggle Machine Boundary ", THEME.key_desc),
+        ];
+
+        Paragraph::new(Text::from(vec![
+            Line::from(spans1),
+            Line::default(),
+            Line::from(spans2),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::TOP)
+                .title(Line::styled("Commands", THEME.block_title).centered())
+                .style(THEME.root),
+        )
+        .centered()
     }
 }
 

@@ -257,7 +257,6 @@ impl Arc {
                 let center = if (2.0 * radius - dist).abs() < 1e-5 {
                     midpoint
                 } else {
-                    // TODO create diagram to prove the result for all 4 quadrants
                     match (arc_type, dir) {
                         (ArcType::Minor, CircularDirection::Clockwise)
                         | (ArcType::Major, CircularDirection::CounterClockwise) => {
@@ -569,6 +568,11 @@ impl Machine {
     /// Returns the current position of the machine.
     pub fn pos(&self) -> &Point {
         &self.pos
+    }
+
+    /// Returns the current tool in the machine.
+    pub fn tool(&self) -> Int {
+        self.tool
     }
 
     /// Returns the current active [`Motion`] variant of the machine.

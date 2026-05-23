@@ -217,26 +217,26 @@ impl ApplicationHandler<Command> for Gui {
                 graphics.window.request_redraw();
             }
 
-            Command::ToggleMachineBoundary => {
-                self.static_config.toggle_machine_boundary();
+            Command::SetBoundary(boundary) => {
+                self.static_config.set_machine_boundary(*boundary);
                 graphics.update_statics(self.max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
-            Command::ToggleGrid => {
-                self.static_config.toggle_grid();
+            Command::SetGrid(grid) => {
+                self.static_config.set_grid(*grid);
                 graphics.update_statics(self.max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
-            Command::ToggleOrigin => {
-                self.static_config.toggle_origin();
+            Command::SetOrigin(origin) => {
+                self.static_config.set_origin(*origin);
                 graphics.update_statics(self.max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
-            Command::ToggleTool => {
-                graphics.toggle_tool();
+            Command::SetTool(tool) => {
+                graphics.set_tool(*tool);
                 graphics.window.request_redraw();
             }
 
@@ -875,10 +875,10 @@ impl Graphics {
         );
     }
 
-    /// Toggles the tool visibility in [`Self::uniforms`] and uploads the updated uniforms to
+    /// Sets the tool visibility in [`Self::uniforms`] and uploads the updated uniforms to
     /// [`Self::uniform_buffer`].
-    fn toggle_tool(&mut self) {
-        self.uniforms.toggle_tool();
+    fn set_tool(&mut self, tool: bool) {
+        self.uniforms.set_tool(tool);
 
         self.queue.write_buffer(
             &self.uniform_buffer,

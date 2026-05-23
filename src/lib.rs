@@ -8,11 +8,25 @@ pub mod parser;
 pub mod source;
 mod tui;
 
+use std::fmt::Display;
+
 use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
 const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, 600.0);
+// const MACHINE_TRAVELS: Point = Point::new(500.0, 250.0, 250.0);
+
+/// Single block execution at program start.
+pub const SINGLE: bool = false;
+/// Tool visibility at program start.
+pub const TOOL: bool = true;
+/// XY plane grid visibility at program start.
+pub const GRID: bool = true;
+/// Origin visibility at program start.
+pub const ORIGIN: bool = true;
+/// Machine boudnary visibility at program start.
+pub const BOUNDARY: bool = false;
 
 /// Represents the possible views that can be used in the [`Gui`] and controlled using [`Tui`].
 #[repr(C)]
@@ -28,16 +42,27 @@ pub enum View {
 // required for use in gui uniforms
 unsafe impl bytemuck::Pod for View {}
 
+impl Display for View {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            View::Isometric => "ISOMETRIC",
+            View::Top => "TOP",
+        };
+
+        write!(f, "{string}")
+    }
+}
+
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
 pub enum Command {
     Render(MotionSummary),
     SetView(View),
-    ToggleMachineBoundary,
-    ToggleGrid,
-    ToggleOrigin,
-    ToggleTool,
+    SetTool(bool),
+    SetGrid(bool),
+    SetOrigin(bool),
+    SetBoundary(bool),
     Clear,
     Stop(Option<anyhow::Error>),
 }

@@ -24,16 +24,12 @@
 //! maximum travels are **positive**.
 
 use crate::{
-    View,
+    BOUNDARY, GRID, ORIGIN, TOOL, View,
     machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
     parser::{Plane, Point},
 };
 use std::{cmp::Ordering, f64::consts::PI, mem::size_of};
 use winit::dpi::PhysicalSize;
-
-const SHOW_MACHINE_BOUNDARY: bool = false;
-const SHOW_GRID: bool = true;
-const SHOW_ORIGIN: bool = true;
 
 const DEFAULT_STROKE_WIDTH: f32 = 2.0;
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
@@ -72,27 +68,27 @@ impl Default for StaticConfig {
     /// based on the compile-time constants.
     fn default() -> Self {
         Self {
-            machine_boundary: SHOW_MACHINE_BOUNDARY,
-            grid: SHOW_GRID,
-            origin: SHOW_ORIGIN,
+            machine_boundary: BOUNDARY,
+            grid: GRID,
+            origin: ORIGIN,
         }
     }
 }
 
 impl StaticConfig {
-    /// Toggles machine travel boundary box on or off.
-    pub fn toggle_machine_boundary(&mut self) {
-        self.machine_boundary = !self.machine_boundary
+    /// Sets machine travel boundary box on or off.
+    pub fn set_machine_boundary(&mut self, boundary: bool) {
+        self.machine_boundary = boundary
     }
 
-    /// Toggles the XY plane reference grid on or off.
-    pub fn toggle_grid(&mut self) {
-        self.grid = !self.grid
+    /// Sets the XY plane reference grid on or off.
+    pub fn set_grid(&mut self, grid: bool) {
+        self.grid = grid
     }
 
-    /// Toggles all axis indicators on or off.
-    pub fn toggle_origin(&mut self) {
-        self.origin = !self.origin
+    /// Sets all axis indicators on or off.
+    pub fn set_origin(&mut self, origin: bool) {
+        self.origin = origin
     }
 }
 
@@ -651,7 +647,11 @@ impl Uniforms {
             projection: projection_matrix(view, scale, offset),
             max_travels,
             tool_color: TOOL_COLOR,
-            tool_size: max_travels[0].abs() / 40.0,
+            tool_size: if TOOL {
+                max_travels[0].abs() / 40.0
+            } else {
+                0.0
+            },
             tool_len: max_travels[2].abs() / 2.0,
             view,
             _pad2: 0.0,
@@ -681,15 +681,15 @@ impl Uniforms {
         });
     }
 
-    /// Toggles tool visibility by:
+    /// Sets tool visibility by:
     /// - Setting [`Self::tool_size`] to `0.0` to hide.
     /// - Recalculating [`Self::tool_size`] from [`Self::max_travels`] to show.
-    pub fn toggle_tool(&mut self) {
-        self.tool_size = if self.tool_size > 1e-10 {
-            0.0
-        } else {
+    pub fn set_tool(&mut self, tool: bool) {
+        self.tool_size = if tool {
             (self.max_travels[0].abs() + self.max_travels[1].abs() + self.max_travels[2].abs())
                 / 100.0
+        } else {
+            0.0
         }
     }
 }
