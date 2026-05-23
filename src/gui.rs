@@ -28,7 +28,7 @@ use winit::{
 };
 
 /// Maximum number of [`LineInstance`]s allowed to be used in the [`Graphics::lines_buffer`].
-const MAX_INSTANCES: u64 = 100_000;
+const MAX_INSTANCES: u32 = 100_000;
 
 /// Represents the current state of the [`Gui`](crate::gui), owned by the **main thread**.
 pub struct Gui {
@@ -173,25 +173,31 @@ impl ApplicationHandler<Command> for Gui {
             WindowEvent::Resized(size) => graphics.resize(size),
             WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                let proceed = graphics.update();
+                match graphics.update() {
+                    Ok(proceed) => {
+                        if proceed {
+                            // this may fail if the program is processing blocks quickly
+                            // and the tui receives quit signal from user and exits the loop,
+                            // the gui will then exit on next command execution.
+                            let _ = self.signal.send(Signal::Proceed);
+                        };
 
-                if proceed {
-                    // this may fail if the program is processing blocks quickly
-                    // and the tui receives quit signal from user and exits the loop,
-                    // the gui will then exit on next command execution.
-                    let _ = self.signal.send(Signal::Proceed);
-                };
-
-                match graphics.render() {
-                    Ok(_) if !proceed => {
-                        graphics.window.request_redraw();
+                        match graphics.render() {
+                            Ok(_) if !proceed => {
+                                graphics.window.request_redraw();
+                            }
+                            Ok(_) => (),
+                            Err(e) => {
+                                self.error = Some(e); // render error
+                                event_loop.exit()
+                            }
+                        }
                     }
-                    Ok(_) => (),
                     Err(e) => {
-                        self.error = Some(e);
+                        self.error = Some(e); // buffer overflow
                         event_loop.exit()
                     }
-                }
+                };
             }
             _ => (),
         }
@@ -208,8 +214,13 @@ impl ApplicationHandler<Command> for Gui {
             Command::Render(summary) => {
                 let instances = LineInstances::new(*summary);
 
-                graphics.add(instances);
-                graphics.window.request_redraw();
+                match graphics.add(instances) {
+                    Ok(_) => graphics.window.request_redraw(),
+                    Err(e) => {
+                        self.error = Some(e);
+                        event_loop.exit();
+                    }
+                };
             }
 
             Command::SetView(view) => {
@@ -493,7 +504,7 @@ impl Graphics {
 
         let lines_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Lines"),
-            size: MAX_INSTANCES * size_of::<LineInstance>() as u64,
+            size: MAX_INSTANCES as u64 * size_of::<LineInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -639,12 +650,19 @@ impl Graphics {
     /// - [`LineInstances::Linear`]: The new line instance is merged with the last instance in the
     ///   buffer, extending it.
     /// - [`LineInstances::Arc`]: The new line instances are added individually to the buffer.
-    fn add(&mut self, mut instances: LineInstances) {
+    ///
+    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] will overflow on adding a new
+    /// [`LineInstance`].
+    fn add(&mut self, mut instances: LineInstances) -> anyhow::Result<()> {
         let first = match &mut instances {
             LineInstances::Linear(lines) => lines.next(),
             LineInstances::Arc(lines) => lines.next(),
         }
         .expect("At least one point is guarranteed, which would be the end point.");
+
+        if self.lines_count + 1 > MAX_INSTANCES {
+            anyhow::bail!("Lines vertex buffer overflow.");
+        }
 
         // since shaders are type agnostic and just see raw bytes,
         // therefore we can only add raw byte slices to the buffer of our types
@@ -664,6 +682,8 @@ impl Graphics {
             0,
             bytemuck::cast_slice(&[ToolInstance::at_line_end(first)]),
         );
+
+        Ok(())
     }
 
     /// Uploads the next [`LineInstance`] from [`Self::current_instances`] to
@@ -675,14 +695,18 @@ impl Graphics {
     /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the new line
     /// instance end point.
     ///
-    /// Returns `true` on exhaustion of line instances, indicating [`Gui`] to send a
-    /// [`Signal::Proceed`] to the [`Tui`] and receive a new [`Command`].
-    /// Returns `false` on adding a new line instance to the buffer (there may be more instances
-    /// left to upload to the buffer).
-    fn update(&mut self) -> bool {
+    /// On success:
+    /// - Returns `true` on exhaustion of line instances, indicating [`Gui`] to send a
+    ///   [`Signal::Proceed`] to the [`Tui`] and receive a new [`Command`].
+    /// - Returns `false` on adding a new line instance to the buffer (there may be more instances
+    ///   left to upload to the buffer).
+    ///
+    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] will overflow on adding a new
+    /// [`LineInstance`].
+    fn update(&mut self) -> anyhow::Result<bool> {
         // if None, signal has already been sent to retrieve a command from previous block
         // exhaustion
-        if let Some(instances) = self.current_instances.as_mut() {
+        let ret = if let Some(instances) = self.current_instances.as_mut() {
             match instances {
                 LineInstances::Linear(lines) => match lines.next() {
                     Some(instance) => {
@@ -696,7 +720,7 @@ impl Graphics {
                 },
                 LineInstances::Arc(lines) => match lines.next() {
                     Some(instance) => {
-                        self.update_arc(instance);
+                        self.update_arc(instance)?;
                         false
                     }
                     None => {
@@ -707,13 +731,18 @@ impl Graphics {
             }
         } else {
             false
-        }
+        };
+
+        Ok(ret)
     }
 
     /// Overwrites the provided [`LineInstance`] to the last instance inside [`Self::lines_buffer`].
     ///
     /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the end position
     /// of the provided line instance.
+    ///
+    /// [`Self::lines_buffer`] cannot overflow on this call, because there is no instance addition
+    /// to the buffer.
     fn update_linear(&mut self, instance: LineInstance) {
         self.queue.write_buffer(
             &self.lines_buffer,
@@ -732,12 +761,19 @@ impl Graphics {
     ///
     /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the end position
     /// of the provided line instance.
-    fn update_arc(&mut self, instance: LineInstance) {
+    ///
+    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] will overflow on adding a new
+    /// [`LineInstance`].
+    fn update_arc(&mut self, instance: LineInstance) -> anyhow::Result<()> {
         self.queue.write_buffer(
             &self.lines_buffer,
             self.lines_offset,
             bytemuck::cast_slice(&[instance]),
         );
+
+        if self.lines_count + 1 > MAX_INSTANCES {
+            anyhow::bail!("Lines vertex buffer overflow.");
+        }
 
         self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64;
         self.lines_count += 1;
@@ -747,6 +783,8 @@ impl Graphics {
             0,
             bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
         );
+
+        Ok(())
     }
 
     /// Regenerates the static [`LineInstance`]s with [`LineInstance::statics`],

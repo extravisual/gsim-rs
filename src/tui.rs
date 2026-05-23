@@ -424,7 +424,7 @@ impl Tui {
                 Constraint::Percentage(100),
                 Constraint::Min(6),
                 Constraint::Min(5),
-                Constraint::Min(4),
+                Constraint::Min(6),
             ])
             .split(frame.area());
 
@@ -790,6 +790,7 @@ impl Tui {
         ]))
         .block(
             Block::default()
+                .padding(Padding::symmetric(3, 1))
                 .borders(Borders::TOP)
                 .title(Line::styled("Commands", THEME.block_title).centered())
                 .style(THEME.root),
