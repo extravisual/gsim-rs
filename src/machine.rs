@@ -194,7 +194,7 @@ impl Arc {
 
                 // new point not at the same distance.
                 // tolerance should be a little lenient
-                if (end_planar.dist(&center) - radius).abs() > 1e-5 {
+                if (end_planar.dist(&center) - radius).abs() > 0.01 {
                     Err(MachineError::InvalidCircle(method))
                 } else {
                     Ok(Self {
@@ -254,7 +254,7 @@ impl Arc {
                 let bisector = (radius.powi(2) - dist.powi(2)).sqrt();
 
                 // if points are on the diameter make midpoint is the center
-                let center = if (2.0 * radius - dist).abs() < 1e-5 {
+                let center = if (2.0 * radius - dist).abs() < 0.01 {
                     midpoint
                 } else {
                     match (arc_type, dir) {

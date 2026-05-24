@@ -49,6 +49,24 @@ use crate::{
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
 
+/// Hex encoded default background color.
+const BG: Color = Color::from_u32(0x001e1e1e);
+
+/// Default [`Theme`] for the [`Tui`].
+const THEME: Theme = Theme {
+    root: Style::new().bg(BG).fg(Color::White),
+    title: Style::new().fg(Color::Red).bg(BG).bold(),
+    block_title: Style::new().fg(Color::LightGreen).bold(),
+    interrupt: Style::new().fg(Color::Black).bg(Color::White).bold(),
+    summary: Style::new().fg(Color::Blue).bg(BG).bold(),
+    machine: Style::new().fg(Color::LightBlue).bg(BG).bold(),
+    active_mode: Style::new().fg(Color::LightBlue).bg(BG).bold(),
+    inactive_mode: Style::new().fg(Color::Gray).bg(BG),
+    key: Style::new().fg(Color::Black).bg(Color::DarkGray).bold(),
+    key_desc: Style::new().fg(Color::DarkGray).bg(Color::Black),
+    alarm: Style::new().fg(Color::Black).bg(Color::Rgb(200, 200, 200)),
+};
+
 /// Represents the types of program cycle interruptions.
 /// These interruptions need user input to be removed and resume cycle.
 enum Interrupt {
@@ -74,37 +92,6 @@ impl Display for Interrupt {
         write!(f, "{string}")
     }
 }
-
-/// Represents styling for each section of the [`Tui`].
-struct Theme {
-    root: Style,
-    title: Style,
-    block_title: Style,
-    interrupt: Style,
-    summary: Style,
-    machine: Style,
-    active_mode: Style,
-    inactive_mode: Style,
-    key: Style,
-    key_desc: Style,
-}
-
-/// Hex encoded default background color.
-const BG: Color = Color::from_u32(0x001e1e1e);
-
-/// Default [`Theme`] for the [`Tui`].
-const THEME: Theme = Theme {
-    root: Style::new().bg(BG).fg(Color::White),
-    title: Style::new().fg(Color::Red).bg(BG).bold(),
-    block_title: Style::new().fg(Color::LightGreen).bold(),
-    interrupt: Style::new().fg(Color::Black).bg(Color::White).bold(),
-    summary: Style::new().fg(Color::Blue).bg(BG).bold(),
-    machine: Style::new().fg(Color::LightBlue).bg(BG).bold(),
-    active_mode: Style::new().fg(Color::LightBlue).bg(BG).bold(),
-    inactive_mode: Style::new().fg(Color::Gray).bg(BG),
-    key: Style::new().fg(Color::Black).bg(Color::DarkGray).bold(),
-    key_desc: Style::new().fg(Color::DarkGray).bg(Color::Black),
-};
 
 /// Represents the current state of the [`Tui`](crate::tui).
 pub struct Tui {
@@ -360,11 +347,18 @@ impl Tui {
                 } else if self.current == total {
                     None // end
                 } else {
-                    Some(self.summaries[self.current].clone()) // send stored summary
+                    Some(&self.summaries[self.current]) // send stored summary
                 }
             }
             None => match self.interpreter.execute() {
-                Ok(res) => res, // res can be a new summary or None for exhaustion
+                Ok(res) => {
+                    if let Some(summary) = res {
+                        self.summaries.push(summary); // this was a new block summary
+                        self.summaries.last()
+                    } else {
+                        None // exhausted
+                    }
+                }
                 Err(e) => {
                     self.error = Some(e);
                     return false;
@@ -397,10 +391,6 @@ impl Tui {
                         None => true,
                     }
                 };
-
-                if self.total.is_none() {
-                    self.summaries.push(summary); // this was a new block
-                }
 
                 self.current += 1;
 
@@ -460,9 +450,8 @@ impl Tui {
                 .block(
                     Block::default()
                         .padding(Padding::symmetric(2, 1))
-                        .borders(Borders::ALL)
-                        .title(Line::styled("Alarm", THEME.title).centered()) // use program title
-                        .style(THEME.root),
+                        .title(Line::styled(" Alarm ", THEME.title).centered()) // use program title
+                        .style(THEME.alarm),
                 )
                 .centered();
 
@@ -551,7 +540,7 @@ impl Tui {
                 Block::default()
                     .padding(Padding::symmetric(2, 1))
                     .borders(Borders::TOP)
-                    .title(Line::styled("Summary", THEME.block_title).centered())
+                    .title(Line::styled("Block Summary", THEME.block_title).centered())
                     .style(THEME.root),
             )
             .centered()
@@ -851,4 +840,19 @@ fn get_centered(x: u16, y: u16, rect: Rect) -> Rect {
             Constraint::Percentage((100 - x) / 2),
         ])
         .split(chunks[1])[1] // return the middle chunk
+}
+
+/// Represents styling for each section of the [`Tui`].
+struct Theme {
+    root: Style,
+    title: Style,
+    block_title: Style,
+    interrupt: Style,
+    summary: Style,
+    machine: Style,
+    active_mode: Style,
+    inactive_mode: Style,
+    key: Style,
+    key_desc: Style,
+    alarm: Style,
 }

@@ -47,7 +47,7 @@ const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
 
 const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 // units travelled per frame
-const SPEED: f64 = 10.0;
+const SPEED: f64 = 5.0;
 
 const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
@@ -555,9 +555,6 @@ impl LineInstances {
 
 /// Represents the current 3D position of the tool,
 /// that can be drawn to the screen with a vertex shader.
-///
-/// The vertex shader creates 6 vertices (two triangles) per line instance,
-/// to create a line with variable thickness.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ToolInstance {

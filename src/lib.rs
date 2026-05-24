@@ -14,8 +14,8 @@ use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
-const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, 600.0);
-// const MACHINE_TRAVELS: Point = Point::new(500.0, 250.0, 250.0);
+// const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, 600.0);
+const MACHINE_TRAVELS: Point = Point::new(500.0, 250.0, 250.0);
 
 /// Single block execution at program start.
 pub const SINGLE: bool = false;
