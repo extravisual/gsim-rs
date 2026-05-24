@@ -59,6 +59,7 @@ impl Display for View {
 pub enum Command {
     Render(MotionSummary),
     SetView(View),
+    SetSingle(bool),
     SetTool(bool),
     SetGrid(bool),
     SetOrigin(bool),

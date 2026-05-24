@@ -229,9 +229,8 @@ impl Tui {
     where
         anyhow::Error: From<B::Error>,
     {
-        // flag to check if last proceed request was fulfilled or not
-        // one render command is sent regardless at start of the loop
-        let mut proceed = true;
+        // always wait for the gui to trigger
+        let mut proceed = false;
 
         // the main idea of this loop is that the event loop from main thread,
         // drives this loop with every proceed signal
@@ -276,7 +275,12 @@ impl Tui {
                             self.proxy.send_event(Command::SetView(self.view)).unwrap();
                         }
 
-                        KeyCode::Char('s') => self.single = !self.single,
+                        KeyCode::Char('s') => {
+                            self.single = !self.single;
+                            self.proxy
+                                .send_event(Command::SetSingle(self.single))
+                                .unwrap()
+                        }
 
                         KeyCode::Char('b') => {
                             self.boundary = !self.boundary;

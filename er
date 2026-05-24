@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running `target/debug/gsim-rs gcodes/gsim.gcode`
+
+thread 'main' (1454632) panicked at src/geometry.rs:615:49:
+New motion not added.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -8,7 +8,9 @@
 #[allow(unused_imports)]
 use crate::{
     Command, Signal, View,
-    geometry::{LineInstance, LineInstances, StaticConfig, ToolInstance, Uniforms},
+    geometry::{
+        BufferAction, LineInstance, LineInstancesTracker, StaticConfig, ToolInstance, Uniforms,
+    },
     machine::HOME_POS,
     parser::Point,
     tui::Tui,
@@ -47,6 +49,16 @@ pub struct Gui {
     /// [`winit`] event loop that can receive user events in form of [`Command`]s.
     /// Consumed on [`Gui::run`] call.
     event_loop: Option<EventLoop<Command>>,
+    /// Flag to make sure that the first redraw request is always fulfilled.
+    first: bool,
+    /// Flag to check if the [`Gui`] already sent a [`Signal::Proceed`] to the [`Tui`],
+    /// and received a corresponding [`Command::Render`].
+    render_received: bool,
+    /// Single step through code blocks.
+    /// This is to be in sync with [`Tui::single`] and is used to bypass [`LineInstancesTracker`]
+    /// render check. While this is `true`, each [`Graphics::update`] call will be followed by a
+    /// [`Graphics::render`] call, irrespective of the return value of [`Graphics::update`].
+    single: bool,
 }
 
 impl Gui {
@@ -69,6 +81,9 @@ impl Gui {
             error: None,
             static_config: StaticConfig::default(),
             event_loop: Some(event_loop),
+            first: true,
+            render_received: false,
+            single: false,
         })
     }
 
@@ -169,37 +184,54 @@ impl ApplicationHandler<Command> for Gui {
             None => return,
         };
 
+        // after this match the frame is rendered every time
+        // return when frame is not to be rendered
         match event {
-            WindowEvent::Resized(size) => graphics.resize(size),
-            WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
-            WindowEvent::RedrawRequested => {
-                match graphics.update() {
-                    Ok(proceed) => {
+            WindowEvent::Resized(size) => return graphics.resize(size),
+
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => return event_loop.exit(),
+
+            WindowEvent::RedrawRequested if self.first => {
+                self.first = false;
+                debug_assert!(!self.render_received);
+                // this may fail if the program is processing blocks quickly
+                // and the tui receives quit signal from user and exits the loop,
+                // the gui will then exit on next command execution.
+                let _ = self.signal.send(Signal::Proceed);
+            }
+
+            WindowEvent::RedrawRequested if self.render_received => {
+                // render command received, update graphcis state
+                match graphics.update(self.single) {
+                    Ok((proceed, render)) => {
                         if proceed {
-                            // this may fail if the program is processing blocks quickly
-                            // and the tui receives quit signal from user and exits the loop,
-                            // the gui will then exit on next command execution.
-                            let _ = self.signal.send(Signal::Proceed);
+                            let _ = self.signal.send(Signal::Proceed); // exhausted, request new render command
+                            self.render_received = false;
+                        } else {
+                            graphics.window.request_redraw(); // still more instances in the tracker
                         };
 
-                        match graphics.render() {
-                            Ok(_) if !proceed => {
-                                graphics.window.request_redraw();
-                            }
-                            Ok(_) => (),
-                            Err(e) => {
-                                self.error = Some(e); // render error
-                                event_loop.exit()
-                            }
+                        if !render && !self.single {
+                            return;
                         }
                     }
                     Err(e) => {
                         self.error = Some(e); // buffer overflow
-                        event_loop.exit()
+                        return event_loop.exit();
                     }
                 };
             }
-            _ => (),
+
+            // this was not triggered by a render command,
+            // do not update the graphics state, just render
+            WindowEvent::RedrawRequested => (),
+
+            _ => return,
+        };
+
+        if let Err(e) = graphics.render() {
+            self.error = Some(e); // render error
+            event_loop.exit()
         }
     }
 
@@ -212,20 +244,20 @@ impl ApplicationHandler<Command> for Gui {
 
         match &event {
             Command::Render(summary) => {
-                let instances = LineInstances::new(*summary);
+                debug_assert!(!self.render_received);
+                self.render_received = true;
 
-                match graphics.add(instances) {
-                    Ok(_) => graphics.window.request_redraw(),
-                    Err(e) => {
-                        self.error = Some(e);
-                        event_loop.exit();
-                    }
-                };
+                graphics.tracker.add(*summary);
+                graphics.window.request_redraw();
             }
 
             Command::SetView(view) => {
                 graphics.set_view(*view);
                 graphics.window.request_redraw();
+            }
+
+            Command::SetSingle(single) => {
+                self.single = *single;
             }
 
             Command::SetBoundary(boundary) => {
@@ -304,8 +336,9 @@ pub struct Graphics {
     /// Vertex buffer configured to hold a single [`ToolInstance`].
     tool_buffer: wgpu::Buffer,
 
-    /// [`LineInstance`]s left to be drawn to fulfil the latest [`Command::Render`] from [`Tui`].
-    current_instances: Option<LineInstances>,
+    /// Tracks total [`LineInstance`]s drawn and left to be drawn to
+    /// fulfil the latest [`Command::Render`] from [`Tui`].
+    tracker: LineInstancesTracker,
 
     /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
@@ -592,7 +625,7 @@ impl Graphics {
             static_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
             tool_pipeline,
             tool_buffer,
-            current_instances: None,
+            tracker: LineInstancesTracker::new(),
             uniforms,
             uniform_buffer,
             uniform_bind_group,
@@ -639,132 +672,76 @@ impl Graphics {
         }
     }
 
-    /// Begins rendering a new move by writing the first [`LineInstance`] to [`Self::lines_buffer`],
-    /// and storing the remainder in [`Self::current_instances`] for use in subsequent frames.
+    /// Uploads the next [`LineInstance`] from [`Self::tracker`] to
+    /// [`Self::lines_buffer`], depending on the returned [`BufferAction`].
     ///
-    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the first
-    /// [`LineInstance`] end point.
+    /// - [`BufferAction::Overwrite`]:
+    ///   Overwrites the new line instance over the last instance in the buffer, extending it.
+    /// - [`BufferAction::Add`]: Appends the new line instance individually to the buffer.
     ///
-    /// Subsequent instances are added in [`Self::update`],
-    /// depending on the target geometry of [`LineInstances`]:
-    /// - [`LineInstances::Linear`]: The new line instance is merged with the last instance in the
-    ///   buffer, extending it.
-    /// - [`LineInstances::Arc`]: The new line instances are added individually to the buffer.
+    /// Also, depending on the `render` flags of [`BufferAction`],
+    /// updates the position of [`ToolInstance`] in [`Self::tool_buffer`]
+    /// to the new line instance end point.
+    /// Although a `force_render_tool` flag can be provided to make sure the [`ToolInstance`] is
+    /// updated to the new position.
     ///
-    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] will overflow on adding a new
-    /// [`LineInstance`].
-    fn add(&mut self, mut instances: LineInstances) -> anyhow::Result<()> {
-        let first = match &mut instances {
-            LineInstances::Linear(lines) => lines.next(),
-            LineInstances::Arc(lines) => lines.next(),
-        }
-        .expect("At least one point is guarranteed, which would be the end point.");
-
-        if self.lines_count + 1 > MAX_INSTANCES {
-            anyhow::bail!("Lines vertex buffer overflow.");
-        }
-
-        // since shaders are type agnostic and just see raw bytes,
-        // therefore we can only add raw byte slices to the buffer of our types
-        self.queue.write_buffer(
-            &self.lines_buffer,
-            self.lines_offset,
-            bytemuck::cast_slice(&[first]),
-        );
-
-        // bytemuck cannot infer target type, therefore provide u8
-        self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[first]).len() as u64;
-        self.lines_count += 1;
-        self.current_instances = Some(instances);
-
-        self.queue.write_buffer(
-            &self.tool_buffer,
-            0,
-            bytemuck::cast_slice(&[ToolInstance::at_line_end(first)]),
-        );
-
-        Ok(())
-    }
-
-    /// Uploads the next [`LineInstance`] from [`Self::current_instances`] to
-    /// [`Self::lines_buffer`], depending on the target geometry of [`LineInstances`]:
-    /// - [`LineInstances::Linear`]: Merges the new line instance with the last instance in the
-    ///   buffer, extending it.
-    /// - [`LineInstances::Arc`]: Appends the new line instance individually to the buffer.
-    ///
-    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the new line
-    /// instance end point.
-    ///
-    /// On success:
-    /// - Returns `true` on exhaustion of line instances, indicating [`Gui`] to send a
+    /// On success returns a tuple with two `bool`s:
+    /// - First `bool` is set to `true` on [`BufferAction::Exhausted`], indicating [`Gui`] to send
     ///   [`Signal::Proceed`] to the [`Tui`] and receive a new [`Command`].
-    /// - Returns `false` on adding a new line instance to the buffer (there may be more instances
-    ///   left to upload to the buffer).
+    /// - Second `bool` is used to indicate [`Gui`] to call [`Graphics::render`].
     ///
-    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] will overflow on adding a new
+    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] overflows on adding the new
     /// [`LineInstance`].
-    fn update(&mut self) -> anyhow::Result<bool> {
+    fn update(&mut self, force_render_tool: bool) -> anyhow::Result<(bool, bool)> {
         // if None, signal has already been sent to retrieve a command from previous block
         // exhaustion
-        let ret = if let Some(instances) = self.current_instances.as_mut() {
-            match instances {
-                LineInstances::Linear(lines) => match lines.next() {
-                    Some(instance) => {
-                        self.update_linear(instance);
-                        false
-                    }
-                    None => {
-                        self.current_instances = None;
-                        true
-                    }
-                },
-                LineInstances::Arc(lines) => match lines.next() {
-                    Some(instance) => {
-                        self.update_arc(instance)?;
-                        false
-                    }
-                    None => {
-                        self.current_instances = None;
-                        true
-                    }
-                },
+        let (proceed, render) = match self.tracker.next() {
+            // update tool if we are going to request redraw
+            BufferAction::Overwrite { instance, render } => {
+                self.overwrite_instance(instance, render || force_render_tool);
+                (false, render)
             }
-        } else {
-            false
+            BufferAction::Add { instance, render } => {
+                self.add_instance(instance, render || force_render_tool)?;
+                (false, render)
+            }
+            BufferAction::Exhausted => (true, false),
         };
 
-        Ok(ret)
+        Ok((proceed, render))
     }
 
-    /// Overwrites the provided [`LineInstance`] to the last instance inside [`Self::lines_buffer`].
+    /// Overwrites the provided [`LineInstance`] over the last instance inside [`Self::lines_buffer`].
     ///
-    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the end position
-    /// of the provided line instance.
+    /// Accepts an `update_tool` flag to update the position of [`ToolInstance`]
+    /// in [`Self::tool_buffer`] to the end position of the provided line instance.
     ///
     /// [`Self::lines_buffer`] cannot overflow on this call, because there is no instance addition
     /// to the buffer.
-    fn update_linear(&mut self, instance: LineInstance) {
+    fn overwrite_instance(&mut self, instance: LineInstance, update_tool: bool) {
         self.queue.write_buffer(
             &self.lines_buffer,
             self.lines_offset - bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64,
             bytemuck::cast_slice(&[instance]),
         );
 
-        self.queue.write_buffer(
-            &self.tool_buffer,
-            0,
-            bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
-        );
+        if update_tool {
+            self.queue.write_buffer(
+                &self.tool_buffer,
+                0,
+                bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
+            );
+        }
     }
 
     /// Appends the provided [`LineInstance`] to [`Self::lines_buffer`].
     ///
-    /// Also, updates the position of [`ToolInstance`] in [`Self::tool_buffer`] to the end position
-    /// of the provided line instance.
+    /// Accepts an `update_tool` flag to update the position of [`ToolInstance`]
+    /// in [`Self::tool_buffer`] to the end position of the provided line instance.
     ///
-    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] will overflow on adding a new
+    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] overflows on adding the new
     /// [`LineInstance`].
-    fn update_arc(&mut self, instance: LineInstance) -> anyhow::Result<()> {
+    fn add_instance(&mut self, instance: LineInstance, update_tool: bool) -> anyhow::Result<()> {
         self.queue.write_buffer(
             &self.lines_buffer,
             self.lines_offset,
@@ -778,11 +755,13 @@ impl Graphics {
         self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64;
         self.lines_count += 1;
 
-        self.queue.write_buffer(
-            &self.tool_buffer,
-            0,
-            bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
-        );
+        if update_tool {
+            self.queue.write_buffer(
+                &self.tool_buffer,
+                0,
+                bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
+            );
+        }
 
         Ok(())
     }
@@ -801,7 +780,7 @@ impl Graphics {
     fn clear(&mut self) {
         self.lines_count = self.static_count;
         self.lines_offset = self.static_offset;
-        self.current_instances = None;
+        self.tracker.reset();
     }
 
     /// Renders a new frame to the [`Self::surface`], drawing the toolpath and tool

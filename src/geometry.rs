@@ -3,6 +3,9 @@
 //! Constructs [`LineInstance`]s, [`ToolInstance`], and [`Uniforms`] values,
 //! to be uploaded to the vertex shader for simulation.
 //!
+//! [`LineInstance`]s can be generated using [`LineInstancesTracker`],
+//! which tracks when the line instances should be drawn to the surface.
+//!
 //! [`LineInstance`]s depict toolpaths and static view objects,
 //! toggled by [`StaticConfig`]:
 //! - Machine Boundary Box
@@ -31,11 +34,17 @@ use crate::{
 use std::{cmp::Ordering, f64::consts::PI, mem::size_of};
 use winit::dpi::PhysicalSize;
 
-const DEFAULT_STROKE_WIDTH: f32 = 2.0;
+/// Stroke width for toolpath [`LineInstance`]s in pixels.
+const DEFAULT_STROKE_WIDTH: f32 = 1.5;
+/// Stroke width for static [`LineInstance`]s showing the machine boundary box.
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
-const MACHINE_INSET: f32 = 10.0; // additional to machine boundary offset
+/// Stroke width for static [`LineInstance`]s showing all axes, rooted at origin.
 const ORIGIN_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
+/// Stroke width for static [`LineInstance`]s showing the XY plane grid.
 const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.75;
+
+/// Additional padding applied to the machine boundary in pixels.
+const MACHINE_INSET: f32 = 10.0;
 
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [0.69, 0.69, 0.69]; // noice
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.05, 0.05];
@@ -44,9 +53,9 @@ const GRID_COLOR: [f32; 3] = [0.1, 0.1, 0.1];
 const X_AXIS_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const Y_AXIS_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
 const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
-
 const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
-// units travelled per frame
+
+/// Machine units travelled per frame.
 const SPEED: f64 = 5.0;
 
 const COS30: f32 = 0.8660254;
@@ -98,7 +107,7 @@ impl StaticConfig {
 /// The vertex shader creates 6 vertices (two triangles) per line instance,
 /// to create a line with variable thickness.
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LineInstance {
     /// 3D start point of the line.
     start: [f32; 3],
@@ -109,7 +118,7 @@ pub struct LineInstance {
     /// Width of the rendered line, in pixels.
     stroke_width: f32,
     /// Depth of the instance in NDC, used inside the shader.
-    /// Must be in range 0..1.
+    /// Must be in range `0..1`.
     depth: f32,
 }
 
@@ -166,17 +175,15 @@ impl LineInstance {
         let avg = (x + y + z) / 3.0;
 
         // grid square size, in machine units
-        let step = if avg > 750.0 {
-            100.0
-        } else if avg > 500.0 {
-            50.0
-        } else if avg > 250.0 {
-            25.0
-        } else {
-            10.0
-        };
+        let grid_step = (avg / 10.0).ceil();
 
-        let mut ret = Vec::with_capacity(12 + 3);
+        // draw 3 times the axis travel in pos dir and 2 times the axis travel in neg
+        let y_lines_count = ((x * 5.0) / grid_step).ceil() as usize;
+        let x_lines_count = ((y * 5.0) / grid_step).ceil() as usize;
+
+        // preallocate for 12 boundary edges, 3 axes indicators,
+        // y_lines_count vertical grid lines and x_lines_count horizontal grid lines
+        let mut ret = Vec::with_capacity(12 + 3 + y_lines_count + x_lines_count);
 
         let boundary_stroke_width = if static_config.machine_boundary {
             MACHINE_BOUNDARY_WIDTH
@@ -315,7 +322,7 @@ impl LineInstance {
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
             });
-            current_x += step;
+            current_x += grid_step;
         }
 
         current_x = 0.0;
@@ -328,7 +335,7 @@ impl LineInstance {
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
             });
-            current_x -= step;
+            current_x -= grid_step;
         }
 
         while current_y < y * 3.0 {
@@ -339,7 +346,7 @@ impl LineInstance {
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
             });
-            current_y += step;
+            current_y += grid_step;
         }
 
         current_y = 0.0;
@@ -352,7 +359,7 @@ impl LineInstance {
                 stroke_width: grid_stroke_width,
                 depth: 0.75,
             });
-            current_y -= step;
+            current_y -= grid_step;
         }
 
         ret
@@ -387,7 +394,7 @@ impl LineInstance {
 ///
 /// The geometry type is used to determine how the new line instances are added to
 /// the GPU [`buffer`](crate::gui::Graphics::lines_buffer);
-pub enum LineInstances {
+enum LineInstances {
     /// A single straight line.
     /// Rendered by adding and updating only one new instance to the GPU buffer, in order to save memory.
     Linear(Box<dyn Iterator<Item = LineInstance>>),
@@ -397,8 +404,8 @@ pub enum LineInstances {
 }
 
 impl LineInstances {
-    /// Converts a [`MotionSummary`] to the corresponding [`LineInstances`] vairant.
-    pub fn new(summary: MotionSummary) -> Self {
+    /// Converts a [`MotionSummary`] to the corresponding [`LineInstances`] variant.
+    fn new(summary: MotionSummary) -> Self {
         match summary {
             MotionSummary::Rapid(line) => Self::linear_points(line, LineInstance::rapid_move),
             MotionSummary::Feed(line) => Self::linear_points(line, LineInstance::feed_move),
@@ -550,6 +557,137 @@ impl LineInstances {
 
             ret
         })))
+    }
+}
+
+/// Represents how a [`LineInstance`] should be added to the GPU [`buffer`](wgpu::Buffer),
+/// if there is one.
+///
+/// This type is helpful in differentiating between `linear` and `arc` moves,
+/// as well as to prevent the program from feeling sluggish by providing `render` flag.
+pub enum BufferAction {
+    /// Overwrite the last instance inside the buffer with a new one.
+    /// Render if the last frame render happened more than [`SPEED`] units of travel ago.
+    Overwrite {
+        instance: LineInstance,
+        render: bool,
+    },
+    /// Add a new instance to the buffer.
+    /// Render if the last frame render happened more than [`SPEED`] units of travel ago.
+    Add {
+        instance: LineInstance,
+        render: bool,
+    },
+    /// No new instance available.
+    /// Use [`LineInstancesTracker::add`] to add new [`MotionSummary`].
+    Exhausted,
+}
+
+/// Tracks the total length of individual [`LineInstance`]s left to be rendered since last frame render,
+/// throughout the program life.
+///
+/// This is **extremely** useful for *adaptive* toolpaths,
+/// that generate hundreds of really small line segments and without total length tracking,
+/// rendering a new frame for each of those line segments makes the simulation feel slow and stuttery.
+pub struct LineInstancesTracker {
+    /// Iterator for [`LineInstance`]s.
+    instances: Option<LineInstances>,
+    /// Sum of lenghts of each [`LineInstance`] from [`Self::instances`] since the last render.
+    /// These are the instances that are added to the vertex buffer but not drawn to the surface yet.
+    len: f32,
+    /// Flag to check first call to [`Self::next`] after every [`Self::add`] call.
+    first: bool,
+}
+
+impl LineInstancesTracker {
+    /// Construct a new [`LineInstancesTracker`].
+    pub fn new() -> Self {
+        Self {
+            instances: None,
+            len: 0.0,
+            first: true,
+        }
+    }
+
+    /// Loads a new [`LineInstances`] into [`Self::instances`] and sets [`Self::first`].
+    /// Expects the previous `instances` to be [`None`].
+    ///
+    /// # Panics
+    /// Panics if previous `instances` have not been drained yet.
+    pub fn add(&mut self, summary: MotionSummary) {
+        if self.instances.is_some() {
+            unreachable!("Previous instances not exhausted.");
+        }
+
+        self.instances = Some(LineInstances::new(summary));
+        self.first = true;
+    }
+
+    /// Iterates [`Self::instances`] and returns a [`BufferAction`] depending on state of `self`.
+    ///
+    /// - First call always returns [`BufferAction::Add`], this is checked with [`Self::first`] flag.
+    /// - Subsequent calls return [`BufferAction::Overwrite`],
+    ///   if [`Self::instances`] is [`LineInstances::Linear`].
+    /// - Subsequent calls return [`BufferAction::Add`],
+    ///   if [`Self::instances`] is [`LineInstances::Arc`].
+    /// - Exhaustion of instances returns [`BufferAction::Exhausted`].
+    ///
+    /// In case of [`BufferAction::Overwrite`] & [`BufferAction::Add`],
+    /// `render` flags is determined on comparing [`Self::len`] with [`SPEED`].
+    ///
+    /// # Panics
+    /// Panics if called when [`Self::instances`] is [`None`].
+    pub fn next(&mut self) -> BufferAction {
+        let instances = self
+            .instances
+            .as_mut()
+            .expect("Next instance requested without before adding new instances.");
+
+        let res = match instances {
+            LineInstances::Linear(lines) => lines.next(),
+            LineInstances::Arc(lines) => lines.next(),
+        };
+
+        let instance = match res {
+            Some(line) => line,
+            None if self.first => {
+                unreachable!("At least one point is guarranteed, which would be the end point.")
+            }
+            None => {
+                self.instances = None;
+                return BufferAction::Exhausted;
+            }
+        };
+
+        self.len += ((instance.end[0] - instance.start[0]).powi(2)
+            + (instance.end[1] - instance.start[1]).powi(2)
+            + (instance.end[2] - instance.start[2]).powi(2))
+        .sqrt();
+
+        // render if the len is now more than acceptable difference between two frames
+        let render = self.len >= SPEED as f32;
+        if render {
+            self.len = 0.0;
+        }
+
+        let ret = match instances {
+            LineInstances::Linear(_) if self.first => BufferAction::Add { instance, render },
+            LineInstances::Linear(_) => BufferAction::Overwrite { instance, render },
+            LineInstances::Arc(_) => BufferAction::Add { instance, render },
+        };
+
+        self.first = false;
+
+        ret
+    }
+
+    /// Resets the internal state of `self`.
+    ///
+    /// Any previous `instances` and sum of instance lengths is lost.
+    pub fn reset(&mut self) {
+        self.instances = None;
+        self.len = 0.0;
+        self.first = true;
     }
 }
 
