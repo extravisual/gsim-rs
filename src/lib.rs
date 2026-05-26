@@ -8,9 +8,8 @@ pub mod parser;
 pub mod source;
 mod tui;
 
-use std::fmt::Display;
-
 use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
+use std::fmt::Display;
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
@@ -76,12 +75,26 @@ pub enum Signal {
     Stop,
 }
 
+fn display_banner() {
+    println!(
+        "\x1b[1;37m
+ ██████╗ ███████╗██╗███╗   ███╗      ██████╗ ███████╗
+██╔════╝ ██╔════╝██║████╗ ████║      ██╔══██╗██╔════╝
+██║  ███╗███████╗██║██╔████╔██║█████╗██████╔╝███████╗
+██║   ██║╚════██║██║██║╚██╔╝██║╚════╝██╔══██╗╚════██║
+╚██████╔╝███████║██║██║ ╚═╝ ██║      ██║  ██║███████║
+ ╚═════╝ ╚══════╝╚═╝╚═╝     ╚═╝      ╚═╝  ╚═╝╚══════╝
+\x1b[0m"
+    );
+}
+
 /// Main entry point for the program.
 ///
 /// Sets up [`Gui`] in the **main thread**, and [`Tui`] in a **new thread**.
 /// Sets up bidirectional communication between both the threads,
 /// using a [`Channel`](std::sync::mpsc::channel) and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
 pub fn run() -> anyhow::Result<()> {
+    display_banner();
     let (sender, receiver) = std::sync::mpsc::channel();
 
     let gui = Gui::build(sender, MACHINE_TRAVELS)?;

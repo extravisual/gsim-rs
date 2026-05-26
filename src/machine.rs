@@ -159,6 +159,7 @@ impl Arc {
 
                 let start_planar = PlanarPoint::from_point(start, plane);
                 let end_planar = PlanarPoint::from_point(end, plane);
+
                 // distance on the specified plane, not in 3D
                 let radius = start_planar.dist(&center);
 
