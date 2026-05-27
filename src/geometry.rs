@@ -35,13 +35,13 @@ use std::{cmp::Ordering, f64::consts::PI, mem::size_of};
 use winit::dpi::PhysicalSize;
 
 /// Stroke width for toolpath [`LineInstance`]s in pixels.
-const DEFAULT_STROKE_WIDTH: f32 = 1.5;
+const DEFAULT_STROKE_WIDTH: f32 = 1.25;
 /// Stroke width for static [`LineInstance`]s showing the machine boundary box.
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
 /// Stroke width for static [`LineInstance`]s showing all axes, rooted at origin.
 const ORIGIN_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
 /// Stroke width for static [`LineInstance`]s showing the XY plane grid.
-const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.75;
+const GRID_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 0.8;
 
 /// Additional padding applied to the machine boundary in pixels.
 const MACHINE_INSET: f32 = 10.0;

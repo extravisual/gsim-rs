@@ -8,4 +8,11 @@ The control interface is built in **Ratatui** and the simulation is done using *
 
 <br>
 
+## Architecture
+
+![An extremely high level architecture diagram of GSim](./media/arch.svg)
+
+*I am not big on system diagrams for personal projects,
+but I feel like this one warrants one as there are **A LOT** of moving parts.*
+
 ## Motivation

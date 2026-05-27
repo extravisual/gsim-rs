@@ -222,7 +222,7 @@ impl ApplicationHandler<Command> for Gui {
                 };
             }
 
-            // this was not triggered by a render command,
+            // this was not triggered by a Command::Render
             // do not update the graphics state, just render
             WindowEvent::RedrawRequested => (),
 
@@ -247,7 +247,7 @@ impl ApplicationHandler<Command> for Gui {
                 debug_assert!(!self.render_received);
                 self.render_received = true;
 
-                graphics.tracker.add(*summary);
+                graphics.lines_tracker.add(*summary);
                 graphics.window.request_redraw();
             }
 
@@ -338,7 +338,7 @@ pub struct Graphics {
 
     /// Tracks total [`LineInstance`]s drawn and left to be drawn to
     /// fulfil the latest [`Command::Render`] from [`Tui`].
-    tracker: LineInstancesTracker,
+    lines_tracker: LineInstancesTracker,
 
     /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
@@ -625,7 +625,7 @@ impl Graphics {
             static_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
             tool_pipeline,
             tool_buffer,
-            tracker: LineInstancesTracker::new(),
+            lines_tracker: LineInstancesTracker::new(),
             uniforms,
             uniform_buffer,
             uniform_bind_group,
@@ -672,7 +672,7 @@ impl Graphics {
         }
     }
 
-    /// Uploads the next [`LineInstance`] from [`Self::tracker`] to
+    /// Uploads the next [`LineInstance`] from [`Self::lines_tracker`] to
     /// [`Self::lines_buffer`], depending on the returned [`BufferAction`].
     ///
     /// - [`BufferAction::Overwrite`]:
@@ -695,7 +695,7 @@ impl Graphics {
     fn update(&mut self, force_render_tool: bool) -> anyhow::Result<(bool, bool)> {
         // if None, signal has already been sent to retrieve a command from previous block
         // exhaustion
-        let (proceed, render) = match self.tracker.next() {
+        let (proceed, render) = match self.lines_tracker.next() {
             // update tool if we are going to request redraw
             BufferAction::Overwrite { instance, render } => {
                 self.overwrite_instance(instance, render || force_render_tool);
@@ -780,7 +780,7 @@ impl Graphics {
     fn clear(&mut self) {
         self.lines_count = self.static_count;
         self.lines_offset = self.static_offset;
-        self.tracker.reset();
+        self.lines_tracker.reset();
     }
 
     /// Renders a new frame to the [`Self::surface`], drawing the toolpath and tool
