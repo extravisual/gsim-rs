@@ -225,6 +225,7 @@ impl Tui {
         self.proxy.send_event(Command::Clear).unwrap();
     }
 
+    /// Starts the [`Tui`] by drawing to the `terminal` in a loop and waits for user input.
     fn start_loop<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> anyhow::Result<()>
     where
         anyhow::Error: From<B::Error>,
@@ -748,8 +749,9 @@ impl Tui {
     }
 
     /// Generates a styled [`Paragraph`] with **possible keys inputs**.
-    /// # Reference
-    /// [`Github`](https://github.com/ratatui/ratatui/blob/main/examples/apps/demo2/src/app.rs)
+    ///
+    /// ## Reference
+    /// [Github](https://github.com/ratatui/ratatui/blob/main/examples/apps/demo2/src/app.rs)
     fn keys_widget(&self) -> Paragraph<'_> {
         let mut spans1 = vec![
             Span::styled("  Q  ", THEME.key),

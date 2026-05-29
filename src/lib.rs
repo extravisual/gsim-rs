@@ -1,12 +1,12 @@
-mod config;
-mod geometry;
-mod gui;
-mod interpreter;
+pub mod config;
+pub mod geometry;
+pub mod gui;
+pub mod interpreter;
 pub mod lexer;
-mod machine;
+pub mod machine;
 pub mod parser;
 pub mod source;
-mod tui;
+pub mod tui;
 
 use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
 use std::fmt::Display;

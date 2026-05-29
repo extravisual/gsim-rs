@@ -465,8 +465,8 @@ impl LineInstances {
     /// The returned iterator is guaranteed to **NOT be empty**, and will return only a single instance,
     /// if the angular sweep of [`Arc`] is shorter than [`SPEED`] per arc radius.
     ///
-    /// # Reference
-    /// [`FreeMathHelp`](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
+    /// ## Reference
+    /// [FreeMathHelp](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
     fn arc_points(arc: Arc) -> Self {
         let plane = arc.center.plane();
         let start = PlanarPoint::from_point(arc.start, plane);
@@ -793,7 +793,7 @@ impl Uniforms {
         }
     }
 
-    /// Recalculates [`Self::scale`] and [`Self::padding`] for a new `window_size`.
+    /// Recalculates [`Self::projection`] view matrix for a new `window_size`.
     pub fn resize(&mut self, window_size: PhysicalSize<u32>) {
         self.window_size = [window_size.width as f32, window_size.height as f32];
         let machine_size = machine_size(self.max_travels.as_slice(), self.view);
@@ -807,7 +807,7 @@ impl Uniforms {
         self.view
     }
 
-    /// Changes the active view and recalculates [`Self::scale`] and [`Self::padding`].
+    /// Changes the active view and recalculates [`Self::projection`].
     pub fn set_view(&mut self, view: View) {
         self.view = view;
         self.resize(PhysicalSize {

@@ -10,7 +10,8 @@
 //! - [`Block`] -> [`CodeBlock`]
 //! - [`Lexer`] -> [`Parser`]
 //!
-//! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
+//! ## Reference
+//! [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
 use crate::lexer::{
     Block, *, {Float, Group, Int, Prefix},
@@ -817,7 +818,7 @@ impl GCode {
     /// At any given time **only one G-code** from each group can be supplied and be activated.
     /// A line/block of code with more than one G-codes of the same group is **invalid**.
     ///
-    /// # Reference:
+    /// ## Reference
     /// [Haas](https://www.haascnc.com/service/service-content/guide-procedures/what-are-g-codes.html#gsc.tab=0)
     pub fn group(&self) -> Group {
         match self {

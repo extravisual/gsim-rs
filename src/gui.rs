@@ -94,7 +94,7 @@ impl Gui {
 
     /// Starts the [`Gui`] by running the [`EventLoop`].
     ///
-    /// While exiting, checks if the [`Tui`] is still running, using [`Gui::last_command`],
+    /// While exiting, checks if the [`Tui`] is still running, using [`Gui::current_command`],
     /// and sends [`Signal::Stop`] to signal a stop, else checks for any error in [`Command::Stop`].
     ///
     /// # Errors

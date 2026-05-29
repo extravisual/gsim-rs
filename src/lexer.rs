@@ -3,7 +3,8 @@
 //! Converts a [`Source`] (with  raw **ASCII G-Code lines**),
 //! into usable [`Token`]s (represented as [`Lexer`]), which then can then be parsed.
 //!
-//! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
+//! ## Reference
+//! [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
 use crate::source::Source;
 
