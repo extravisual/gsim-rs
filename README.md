@@ -1,6 +1,6 @@
 # GSim-RS
 
-![GSim Demo](./media/demo.gif)
+![GSim Demo](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true)
 
 A G-code simulator written in Rust.
 Parses, interprets, manages machine state and simulates the toolpaths.
@@ -20,7 +20,7 @@ I have never done system diagrams for personal projects,
 but I feel like this one warrants one as there are **A LOT** of moving parts.
 
 Here is an **extremely high level** view of the architecture:
-![An extremely high level architecture diagram of GSim](./media/arch.svg)
+![An extremely high level architecture diagram of GSim](https://github.com/navrajkalsi/gsim-rs/blob/main/media/arch.svg?raw=true)
 
 <br>
 
@@ -51,26 +51,91 @@ Here is an **extremely high level** view of the architecture:
 <br>
 
 - [anyhow](https://docs.rs/anyhow/latest/anyhow/index.html)
-- [clap](https://docs.rs/clap/latest/clap/)
-- [pollster](https://docs.rs/pollster/latest/pollster/)
-- [ratatui](https://docs.rs/ratatui/latest/ratatui/)
-- [wgpu](https://docs.rs/wgpu/latest/wgpu/index.html)
-- [winit](https://docs.rs/winit/latest/winit/)
 - [bytemuck](https://docs.rs/bytemuck/latest/bytemuck/)
+- [clap](https://docs.rs/clap/latest/clap/)
 - [env_logger](https://docs.rs/env_logger/latest/env_logger/)
 - [log](https://docs.rs/log/latest/log/)
+- [pollster](https://docs.rs/pollster/latest/pollster/)
+- [ratatui](https://docs.rs/ratatui/latest/ratatui/)
 - [thiserror](https://docs.rs/thiserror/latest/thiserror/)
+- [wgpu](https://docs.rs/wgpu/latest/wgpu/index.html)
+- [winit](https://docs.rs/winit/latest/winit/)
 
 </details>
 
-### Install with `cargo`:
+### 1. Install **Rust** and **Cargo**
 
-1. Install `cargo` package manager from [crates.io](https://crates.io).
+Install using [`rustup`](https://doc.rust-lang.org/cargo/getting-started/installation.html).
 
-2. Run:
+### 2a. Install from **crates.io**
+
 ```bash
 cargo install gsim-rs
 ```
+
+### 2b. Build from the **source**
+
+```bash
+clone https://github.com/navrajkalsi/gsim-rs --depth 1
+cd gsim-rs
+cargo build
+```
+
+<br>
+
+## Usage
+
+### G-code Source
+
+There are two ways to provide the G-code file:
+- **Filepath** argument.
+  ```bash
+  gsim-rs FILEPATH # if bin is on PATH
+  ```
+  or
+  ```bash
+  cargo run -- FILEPATH # from inside the source dir
+  ```
+- **Stdin**.
+  ```bash
+  cat FILEPATH | gsim-rs # if bin is on PATH
+  ```
+  or
+  ```bash
+  cat FILEPATH | cargo run # from inside the source dir
+  ```
+
+
+### Options
+
+The following **flags** can be used to alter the behaviour of the program:
+
+| **Flag** | **Description** | **Default** | **Max** | **Min** |
+| :-: | :-: | :-: | :-: | :-: |
+| -x | Maximum travel of the machine in X axis | 500 | 1500 | 150 |
+| -y | Maximum travel of the machine in Y axis | 250 | 1000 | 100 |
+| -z | Maximum travel of the machine in Z axis | 250 | 1000 | 100 |
+| -h | Print help | | | |
+| -V | Print version | | | |
+
+
+### Default Usage
+```bash
+gsim-rs FILEPATH
+```
+
+By default:
+- Reads the file at *FILEPATH* for G-code.
+- Constructs a machine with maximum X, Y & Z axis travels of 500, 250 & 250 units respectively.
+
+### Additional Usage
+```bash
+curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adaptive.gcode | gsim-rs
+-x 1000 -y 750 -z 800
+```
+
+- Reads G-code source from `stdin`.
+- Constructs a machine with maximum X, Y & Z axis travels of 1000, 750 & 800 units respectively.
 
 <br>
 

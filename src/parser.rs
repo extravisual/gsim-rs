@@ -519,39 +519,38 @@ impl Iterator for Codes {
     ///
     /// This function will **never** return the [`Code::G`] or [`Code::M`] variants of [`Code`].
     fn next(&mut self) -> Option<Self::Item> {
-        #![allow(clippy::redundant_closure)]
         if self.d.is_some() {
-            self.d.take().map(|d| Code::D(d))
+            self.d.take().map(Code::D)
         } else if self.f.is_some() {
-            self.f.take().map(|f| Code::F(f))
+            self.f.take().map(Code::F)
         } else if self.h.is_some() {
-            self.h.take().map(|h| Code::H(h))
+            self.h.take().map(Code::H)
         } else if self.i.is_some() {
-            self.i.take().map(|i| Code::I(i))
+            self.i.take().map(Code::I)
         } else if self.j.is_some() {
-            self.j.take().map(|j| Code::J(j))
+            self.j.take().map(Code::J)
         } else if self.k.is_some() {
-            self.k.take().map(|k| Code::K(k))
+            self.k.take().map(Code::K)
         } else if self.n.is_some() {
-            self.n.take().map(|n| Code::N(n))
+            self.n.take().map(Code::N)
         } else if self.o.is_some() {
-            self.o.take().map(|o| Code::O(o))
+            self.o.take().map(Code::O)
         } else if self.p.is_some() {
-            self.p.take().map(|p| Code::P(p))
+            self.p.take().map(Code::P)
         } else if self.q.is_some() {
-            self.q.take().map(|q| Code::Q(q))
+            self.q.take().map(Code::Q)
         } else if self.r.is_some() {
-            self.r.take().map(|r| Code::R(r))
+            self.r.take().map(Code::R)
         } else if self.s.is_some() {
-            self.s.take().map(|s| Code::S(s))
+            self.s.take().map(Code::S)
         } else if self.t.is_some() {
-            self.t.take().map(|t| Code::T(t))
+            self.t.take().map(Code::T)
         } else if self.x.is_some() {
-            self.x.take().map(|x| Code::X(x))
+            self.x.take().map(Code::X)
         } else if self.y.is_some() {
-            self.y.take().map(|y| Code::Y(y))
+            self.y.take().map(Code::Y)
         } else if self.z.is_some() {
-            self.z.take().map(|z| Code::Z(z))
+            self.z.take().map(Code::Z)
         } else {
             None
         }
@@ -1022,7 +1021,7 @@ impl Iterator for GCodes {
 ///
 /// A M-code is used to control machine specific features, mostly as an on-off switch.
 /// Each variant contains all the other variable values it needs to be a valid.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(usize)]
 pub enum MCode {
     /// M00

@@ -8,13 +8,9 @@ pub mod parser;
 pub mod source;
 pub mod tui;
 
-use crate::{gui::Gui, machine::MotionSummary, parser::Point, tui::Tui};
+use crate::{config::Config, gui::Gui, machine::MotionSummary, tui::Tui};
+use clap::Parser;
 use std::fmt::Display;
-
-/// Non-Zero extremes for each axis of the machine.
-/// Passed to both GUI and TUI.
-// const MACHINE_TRAVELS: Point = Point::new(1200.0, 600.0, 600.0);
-const MACHINE_TRAVELS: Point = Point::new(500.0, 250.0, 250.0);
 
 /// Single block execution at program start.
 pub const SINGLE: bool = false;
@@ -96,9 +92,10 @@ fn display_banner() {
 pub fn run() -> anyhow::Result<()> {
     display_banner();
     let (sender, receiver) = std::sync::mpsc::channel();
+    let config = Config::parse();
 
-    let gui = Gui::build(sender, MACHINE_TRAVELS)?;
-    let tui = Tui::build(receiver, MACHINE_TRAVELS, gui.create_proxy())?;
+    let gui = Gui::build(sender, config.max_travels())?;
+    let tui = Tui::build(receiver, config, gui.create_proxy())?;
 
     let tui = std::thread::Builder::new()
         .name("TUI".to_string())

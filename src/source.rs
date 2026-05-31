@@ -3,7 +3,10 @@
 //! Reads in **raw G-Code text**,
 //! and prepares it for the [`Lexer`](crate::lexer) to be tokenized.
 
-use std::str::Lines;
+use std::{
+    io::{IsTerminal, Read},
+    str::Lines,
+};
 
 /// Represents a sanitized line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,10 +42,28 @@ impl Source {
         Ok(Self::from_lines(data.lines()))
     }
 
+    /// Constructs a new [`Source`] by checking if `stdin` is readable,
+    /// and then reading it for G-code text.
+    ///
+    /// See [`from_lines`](Self::from_lines) for sanitization details.
+    ///
+    /// # Errors
+    /// Returns a [`SourceError`] on failure to *read stdin*.
+    pub fn from_stdin() -> Result<Self, SourceError> {
+        if !is_readable_stdin() {
+            return Err(SourceError::StdinNotReadable);
+        }
+
+        let mut buf = Vec::new();
+        std::io::stdin().read_to_end(&mut buf)?;
+
+        Ok(Self::from_str(str::from_utf8(buf.as_slice())?))
+    }
+
     /// Constructs a new [`Source`], from a provided *string slice*.
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
-    pub fn from_string(data: &str) -> Self {
+    pub fn from_str(data: &str) -> Self {
         Self::from_lines(data.lines())
     }
 
@@ -111,11 +132,99 @@ impl Iterator for Source {
     }
 }
 
+/// Returns true if and only if stdin is believed to be readable.
+///
+/// This is taken directly from
+/// [`ripgrep`](https://github.com/BurntSushi/ripgrep/blob/master/crates/cli/src/lib.rs).
+pub fn is_readable_stdin() -> bool {
+    #[cfg(unix)]
+    fn imp() -> bool {
+        use std::{
+            fs::File,
+            os::{fd::AsFd, unix::fs::FileTypeExt},
+        };
+
+        let stdin = std::io::stdin();
+        let fd = match stdin.as_fd().try_clone_to_owned() {
+            Ok(fd) => fd,
+            Err(err) => {
+                log::debug!(
+                    "for heuristic stdin detection on Unix, \
+                     could not clone stdin file descriptor \
+                     (thus assuming stdin is not readable): {err}",
+                );
+                return false;
+            }
+        };
+        let file = File::from(fd);
+        let md = match file.metadata() {
+            Ok(md) => md,
+            Err(err) => {
+                log::debug!(
+                    "for heuristic stdin detection on Unix, \
+                     could not get file metadata for stdin \
+                     (thus assuming stdin is not readable): {err}",
+                );
+                return false;
+            }
+        };
+        let ft = md.file_type();
+        let is_file = ft.is_file();
+        let is_fifo = ft.is_fifo();
+        let is_socket = ft.is_socket();
+        let is_readable = is_file || is_fifo || is_socket;
+        log::debug!(
+            "for heuristic stdin detection on Unix, \
+             found that \
+             is_file={is_file}, is_fifo={is_fifo} and is_socket={is_socket}, \
+             and thus concluded that is_stdin_readable={is_readable}",
+        );
+        is_readable
+    }
+
+    #[cfg(windows)]
+    fn imp() -> bool {
+        let stdin = winapi_util::HandleRef::stdin();
+        let typ = match winapi_util::file::typ(stdin) {
+            Ok(typ) => typ,
+            Err(err) => {
+                log::debug!(
+                    "for heuristic stdin detection on Windows, \
+                     could not get file type of stdin \
+                     (thus assuming stdin is not readable): {err}",
+                );
+                return false;
+            }
+        };
+        let is_disk = typ.is_disk();
+        let is_pipe = typ.is_pipe();
+        let is_readable = is_disk || is_pipe;
+        log::debug!(
+            "for heuristic stdin detection on Windows, \
+             found that is_disk={is_disk} and is_pipe={is_pipe}, \
+             and thus concluded that is_stdin_readable={is_readable}",
+        );
+        is_readable
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn imp() -> bool {
+        log::debug!("on non-{{Unix,Windows}}, assuming stdin is not readable");
+        false
+    }
+
+    !std::io::stdin().is_terminal() && imp()
+}
+
 /// Possible errors that can happen during [`Source`] construction.
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
-    #[error("file read failed")]
+    #[error("file/stdin read failed")]
     IO(#[from] std::io::Error),
+    #[error("could not convert stdin bytes to string")]
+    UTF(#[from] std::str::Utf8Error),
+    #[error("no gcode file provided via filepath or stdin")]
+    StdinNotReadable,
 }
 
 #[cfg(test)]
@@ -396,7 +505,7 @@ mod tests {
         assert_eq!(result, collected);
 
         // text
-        let src = Source::from_string(TESTCODE);
+        let src = Source::from_str(TESTCODE);
         let collected: Vec<Line> = src.collect();
         assert_eq!(result, collected);
     }

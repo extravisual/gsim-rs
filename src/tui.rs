@@ -9,7 +9,6 @@
 //! which receive [`Command`]s in response from the [`Tui`] thread,
 //! communicating user input and state changes.
 
-use clap::Parser as clap;
 use ratatui::{
     Frame, Terminal,
     crossterm::{
@@ -132,7 +131,7 @@ pub struct Tui {
 }
 
 impl Tui {
-    /// Constructs a new [`Tui`] and loads the [`Source`] from file at input path.
+    /// Constructs a new [`Tui`] and loads the [`Source`] either from file at input path or `stdin`.
     ///
     /// The [`Tui::view`] is set to [`View::default`],
     /// [`Tui::single`] block execution is set to `false`,
@@ -142,11 +141,13 @@ impl Tui {
     /// Returns [`Error`](anyhow::Error) on failure to read [`Source`] file or build the [`Machine`].
     pub fn build(
         signal: Receiver<Signal>,
-        max_travels: Point,
+        config: Config,
         proxy: EventLoopProxy<Command>,
     ) -> anyhow::Result<Self> {
-        let config = Config::parse();
-        let src = Source::from_file(&config.filepath)?;
+        let src = match &config.filepath {
+            Some(path) => Source::from_file(path),
+            None => Source::from_stdin(),
+        }?;
 
         Ok(Self {
             signal,
@@ -159,7 +160,7 @@ impl Tui {
             boundary: BOUNDARY,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
-                Machine::build(max_travels, Unit::default())?,
+                Machine::build(config.max_travels(), Unit::default())?,
             ),
             current: 0,
             total: None,
@@ -517,7 +518,7 @@ impl Tui {
                 lines.push(Line::default());
             };
 
-            if let Some(mcode) = summary.mcode.clone() {
+            if let Some(mcode) = summary.mcode {
                 lines.push(Line::styled("MCODE:", THEME.summary));
                 lines.push(Line::styled(mcode.to_string(), THEME.root));
                 lines.push(Line::default());

@@ -2,8 +2,12 @@
 name = "gsim-rs"
 version = "1.0.0"
 edition = "2024"
-description = "G-Code simulator in Rust"
+description = "A G-Code simulator written in Rust."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/navrajkalsi/gsim-rs"
+keywords = ["parsing", "simulation", "tui", "gcode", "wgpu", "ratatui"]
+categories = ["command-line-utilities", "rendering", "simulation"]
+exclude = ["gcodes", "media"]
 
 [dependencies]
 anyhow = "1.0.102"
