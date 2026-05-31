@@ -2,6 +2,8 @@
 
 ![GSim Demo](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true)
 
+[![Crates](https://img.shields.io/crates/v/gsim-rs?logo=Rust&color=%23ffaa00)](https://crates.io/crates/gsim-rs) [![Github](https://img.shields.io/badge/navrajkalsi%2Fgsim-rs?logo=GitHub&label=repo&color=%234444ff)](https://github.com/navrajkalsi/gsim-rs) [![Docs](https://img.shields.io/docsrs/gsim-rs?logo=Rust)](https://docs.rs/gsim-rs/latest/gsim_rs/)
+
 A G-code simulator written in Rust.
 Parses, interprets, manages machine state and simulates the toolpaths.
 The control interface is built in **Ratatui** and the simulation is done using **WGPU**.
@@ -28,13 +30,13 @@ Here is an **extremely high level** view of the architecture:
 
 - **TUI** and **GUI** run on different threads using a feedback cycle, ensuring that both the
   interfaces are in sync.
+- Smooth simulation of **adaptive** or **dynamic** toolpaths is ensured by batching up tiny moves
+  before rendering them to the frame. This is bypassed on **single mode on** to give the user
+  instant visual feedback, thus rendering each move irrespective of the move length.
 - **Single execution** of blocks is supported, allowing stepping through blocks.
 - **Rapid** and **Feed** moves are differentiated visually in the simulation.
 - **Isometric** and **Top** simulation views can be switched between, at runtime.
 - **Machine boundary box** can be activated to visualize the extremes of machine travels.
-- Smooth simulation of **adaptive** or **dynamic** toolpaths is ensured by batching up tiny moves
-  before rendering them to the frame. This is bypassed on **single mode on** to give the user
-  instant visual feedback, thus rendering each move irrespective of the move length.
 - Parsing and interpretation only happen during the first cycle and are **cached**. This makes
   subsequent cycles more efficient.
 - **Overtravel** is calculated before each move and an error is raised if the move will
@@ -76,9 +78,9 @@ cargo install gsim-rs
 ### 2b. Build from the **source**
 
 ```bash
-clone https://github.com/navrajkalsi/gsim-rs --depth 1
+git clone https://github.com/navrajkalsi/gsim-rs --depth 1
 cd gsim-rs
-cargo build
+cargo build --release
 ```
 
 <br>
@@ -94,7 +96,7 @@ There are two ways to provide the G-code file:
   ```
   or
   ```bash
-  cargo run -- FILEPATH # from inside the source dir
+  cargo run --release -- FILEPATH # from inside the source dir
   ```
 - **Stdin**.
   ```bash
@@ -102,7 +104,7 @@ There are two ways to provide the G-code file:
   ```
   or
   ```bash
-  cat FILEPATH | cargo run # from inside the source dir
+  cat FILEPATH | cargo run --release # from inside the source dir
   ```
 
 
@@ -130,8 +132,7 @@ By default:
 
 ### Additional Usage
 ```bash
-curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adaptive.gcode | gsim-rs
--x 1000 -y 750 -z 800
+curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adaptive.gcode | gsim-rs -x 1000 -y 750 -z 800
 ```
 
 - Reads G-code source from `stdin`.

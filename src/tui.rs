@@ -41,7 +41,7 @@ use crate::{
     machine::{CircularDirection, FeedMode, Motion, Positioning},
     machine::{Machine, Unit},
     parser::Plane,
-    parser::{CodeBlock, MCode, Parser, Point},
+    parser::{CodeBlock, MCode, Parser},
     source::Source,
 };
 
