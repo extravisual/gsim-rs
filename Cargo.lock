@@ -976,6 +976,7 @@ dependencies = [
  "ratatui",
  "thiserror 2.0.18",
  "wgpu",
+ "winapi-util",
  "winit",
 ]
 
