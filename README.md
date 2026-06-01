@@ -1,8 +1,12 @@
 # GSim-RS
 
-![GSim Demo](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true)
+![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true)
+
+<div align="center">
 
 [![Crates](https://img.shields.io/crates/v/gsim-rs?logo=Rust&color=%23ffaa00)](https://crates.io/crates/gsim-rs) [![Github](https://img.shields.io/badge/navrajkalsi%2Fgsim-rs?logo=GitHub&label=repo&color=%234444ff)](https://github.com/navrajkalsi/gsim-rs) [![Docs](https://img.shields.io/docsrs/gsim-rs?logo=Rust)](https://docs.rs/gsim-rs/latest/gsim_rs/)
+
+</div>
 
 A G-code simulator written in Rust.
 Parses, interprets, manages machine state and simulates the toolpaths.
@@ -30,7 +34,7 @@ Here is an **extremely high level** view of the architecture:
 
 - **TUI** and **GUI** run on different threads using a feedback cycle, ensuring that both the
   interfaces are in sync.
-- Smooth simulation of **adaptive** or **dynamic** toolpaths is ensured by batching up tiny moves
+- Smooth simulation of **adaptive** or **dynamic** toolpaths (like the one shown [here](#gsim-rs)) is ensured by batching up tiny moves
   before rendering them to the frame. This is bypassed on **single mode on** to give the user
   instant visual feedback, thus rendering each move irrespective of the move length.
 - **Single execution** of blocks is supported, allowing stepping through blocks.
@@ -107,10 +111,9 @@ There are two ways to provide the G-code file:
   cat FILEPATH | cargo run --release # from inside the source dir
   ```
 
+### Command Line Options
 
-### Options
-
-The following **flags** can be used to alter the behaviour of the program:
+The following **flags** can be used to alter the behaviour of the program during startup:
 
 | **Flag** | **Description** | **Default** | **Max** | **Min** |
 | :-: | :-: | :-: | :-: | :-: |
@@ -120,6 +123,25 @@ The following **flags** can be used to alter the behaviour of the program:
 | -h | Print help | | | |
 | -V | Print version | | | |
 
+### Runtime Commands
+
+The following **key commands** can be used to control the simulation at **runtime**:
+
+| **Key** | **Description** | **Default** |
+| :-: | :-: | :-: |
+| **Q** | Quit | |
+| **v** | Switch b/w Isometric and Top **views** | Isometric |
+| **s** | Toggle **single** block execution | Off |
+| **t** | Toggle **tool** visibility | On |
+| **g** | Toggle **grid** on XY plane | On |
+| **o** | Toggle **origin** with axis indicators | On |
+| **b** | Toggle **machine bounding box** | Off |
+
+If **single block** execution is set to **On**, the following command is then made available:
+
+| **Key** | **Description** |
+| :-: | :-: |
+| **n** | Proceed to **next** block |
 
 ### Default Usage
 ```bash
@@ -141,6 +163,8 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adapti
 <br>
 
 ## Supported Codes
+
+<div style="display:flex; flex-direction: row;"><div style="margin: 10px;">
 
 ### G Codes
 | **Code** | **Description** |
@@ -171,6 +195,8 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adapti
 | **G98** | Initial Level Return |
 | **G99** | Retract Level Return |
 
+</div><div style="margin: 10px;">
+
 ### M Codes
 | **Code** | **Description** |
 | :-: | :-: |
@@ -183,6 +209,8 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adapti
 | **M08** | Coolant On |
 | **M09** | Coolant Off |
 | **M30** | Program End |
+
+</div><div style="margin: 10px;">
 
 ### Auxiliary Codes
 | **Code** | **Description** |
@@ -203,13 +231,50 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adapti
 | **Y__** | Y Axis Position for **G00**, **G01**, **G02**, **G03** & **G53** |
 | **Z__** | Z Axis Position for **G00**, **G01**, **G02**, **G03** & **G53** |
 
+</div></div>
+
 ### Notes
 - Default value for **G54** offset is **half of each machine axis travel**. Therefore each absolute move
   will be shifted to middle of the machine if activated.
 - **G04 (Dwell)** does not block the threads and is ignored silently.
 - **Cutter and Tool Length Compensations** do not alter the simulation and are thus ignored.
+- Unsupported codes produce an error at runtime telling exactly what is invalid, the **aplhabetic** prefix or the **numeric** suffix.
 
 <br>
+
+## Other Demos
+
+### Note
+**Each demo G-code file, in the [*gcodes*](https://github.com/navrajkalsi/gsim-rs/blob/main/gcodes) directory, says what max travels that file on the first line.
+These need to be provided to the program via command line args.**
+
+---
+
+### With **Filepath** argument
+
+```bash
+gsim-rs CLONED_REPO/gcodes/keyboard.gcode -x 850 -y 425 -z 425
+```
+
+#### Isometric
+![GSim demo, drawing a keyboard from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/keyboard_iso.png?raw=true)
+
+#### Top
+![GSim demo, drawing a keyboard from Top view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/keyboard_top.png?raw=true)
+
+---
+
+### From **Stdin**
+
+```bash
+curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/outline.gcode | gsim-rs
+```
+
+#### Isometric
+![GSim demo, drawing GSim logo from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/outline_iso.png?raw=true)
+
+#### Top
+![GSim demo, drawing GSim logo from Top view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/outline_top.png?raw=true)
 
 ## References
 

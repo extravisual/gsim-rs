@@ -1,6 +1,6 @@
 [package]
 name = "gsim-rs"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 description = "A G-Code simulator written in Rust."
 license = "MIT OR Apache-2.0"
