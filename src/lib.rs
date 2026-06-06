@@ -24,16 +24,16 @@ pub const ORIGIN: bool = true;
 pub const BOUNDARY: bool = false;
 
 /// Represents the possible views that can be used in the [`Gui`] and controlled using [`Tui`].
-#[repr(C)]
+#[repr(u32)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, bytemuck::Zeroable)]
 pub enum View {
     /// Simuate all three axes, from **isometric view**.
     #[default]
-    IsometricXY,
+    IsometricXY = 0,
     /// Simuate all three axes, from **isometric view**.
-    IsometricXZ,
+    IsometricXZ = 1,
     /// Simlutate `X` & `Y` axes, from **top view**.
-    Top,
+    Top = 2,
 }
 
 // required for use in gui uniforms
