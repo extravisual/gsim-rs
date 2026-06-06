@@ -271,8 +271,9 @@ impl Tui {
 
                         KeyCode::Char('v') => {
                             match self.view {
-                                View::Isometric => self.view = View::Top,
-                                View::Top => self.view = View::Isometric,
+                                View::IsometricXY => self.view = View::IsometricXZ,
+                                View::IsometricXZ => self.view = View::Top,
+                                View::Top => self.view = View::IsometricXY,
                             };
                             self.proxy.send_event(Command::SetView(self.view)).unwrap();
                         }

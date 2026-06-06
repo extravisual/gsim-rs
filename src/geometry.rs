@@ -838,7 +838,8 @@ impl Uniforms {
 fn machine_size(max_travels: &[f32], view: View) -> [f32; 2] {
     match view {
         // use projection of the bounding box to get final x and y
-        View::Isometric => project_bounding_box(max_travels),
+        View::IsometricXY => project_bounding_box(max_travels),
+        View::IsometricXZ => project_bounding_box(max_travels),
         // use x and y of the machine
         View::Top => [max_travels[0], max_travels[1]],
     }
@@ -885,32 +886,65 @@ fn scale(window_size: [f32; 2], machine_size: [f32; 2]) -> f32 {
 /// Computes the offset, in **pixels** that centers the machine inside the window, for a [`View`].
 ///
 /// The provided `machine_size` must be the size **AFTER** any projection.
-fn offset(max_travels: [f32; 4], machine_size: [f32; 2], scale: f32, view: View) -> [f32; 2] {
+fn offset(max_travels: [f32; 4], machine_size: [f32; 2], scale: f32, view: View) -> [f32; 3] {
     match view {
-        View::Isometric => [
+        View::IsometricXY => [
             // half of machine size works because 0 of machine will at the boundary
             -(machine_size[0] * scale) / 2.0,
             // half of machine size does not work because the y 0 of the machine view is not at the boundary
             ((max_travels[0] - max_travels[1]) * SIN30 - max_travels[2]) * scale / 2.0,
+            0.0,
+        ],
+        View::IsometricXZ => [
+            // half of machine size works because 0 of machine will at the boundary
+            -(machine_size[0] * scale) / 2.0,
+            // half of machine size does not work because the y 0 of the machine view is not at the boundary
+            ((max_travels[0] - max_travels[1]) * SIN30 - max_travels[2]) * scale / 2.0,
+            0.0,
         ],
         View::Top => [
             -(machine_size[0] * scale) / 2.0,
             -(machine_size[1] * scale) / 2.0,
+            0.0,
         ],
     }
 }
 
+macro_rules! transpose4x4 {
+    // `()` indicates it matches no arguments
+    ($matrix:expr) => {
+        [
+            [$matrix[0][0], $matrix[1][0], $matrix[2][0], $matrix[3][0],],
+            [$matrix[0][1], $matrix[1][1], $matrix[2][1], $matrix[3][1],],
+            [$matrix[0][2], $matrix[1][2], $matrix[2][2], $matrix[3][2],],
+            [$matrix[0][3], $matrix[1][3], $matrix[2][3], $matrix[3][3],],
+        ]
+    };
+}
+
 /// Constructs a view-projection matrix for a provided [`View`],
 /// scales the vertices & center the view volume using provided `offset`.
-fn projection_matrix(view: View, scale: f32, offset: [f32; 2]) -> [[f32; 4]; 4] {
+fn projection_matrix(view: View, scale: f32, offset: [f32; 3]) -> [[f32; 4]; 4] {
     // the actual matrix would visually be the transpose of the return value, row first
     match view {
-        View::Isometric => [
+        View::IsometricXY => [
             [scale * COS30, -scale * SIN30, 0.0, 0.0],
             [scale * COS30, scale * SIN30, 0.0, 0.0],
             [0.0, scale, 0.0, 0.0],
-            [offset[0], offset[1], 0.0, 1.0],
+            [offset[0], offset[1], offset[2], 1.0],
         ],
+        View::IsometricXZ => transpose4x4!([
+                [scale * COS30, 0.0,     scale * COS30, offset[0]],
+                [scale * SIN30, scale,  -scale * SIN30, offset[1]],
+                [          0.0, 0.0,               0.0, 0.0],
+                [          0.0, 0.0,               0.0, 0.0],
+        ]),
+        // View::IsometricXZ => transpose4x4!([
+        //         [ scale * COS30, scale * COS30,   0.0, offset[0]],
+        //         [-scale * SIN30, scale * SIN30, scale, offset[1]],
+        //         [           0.0,           0.0,   0.0, offset[2]],
+        //         [           0.0,           0.0,   0.0,       1.0],
+        // ]),
         View::Top => [
             [scale, 0.0, 0.0, 0.0],
             [0.0, scale, 0.0, 0.0],

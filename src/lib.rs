@@ -29,7 +29,9 @@ pub const BOUNDARY: bool = false;
 pub enum View {
     /// Simuate all three axes, from **isometric view**.
     #[default]
-    Isometric,
+    IsometricXY,
+    /// Simuate all three axes, from **isometric view**.
+    IsometricXZ,
     /// Simlutate `X` & `Y` axes, from **top view**.
     Top,
 }
@@ -40,7 +42,8 @@ unsafe impl bytemuck::Pod for View {}
 impl Display for View {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = match self {
-            View::Isometric => "ISOMETRIC",
+            View::IsometricXY => "ISOMETRIC MILL",
+            View::IsometricXZ => "ISOMETRIC LATHE",
             View::Top => "TOP",
         };
 
