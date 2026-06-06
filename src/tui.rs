@@ -30,10 +30,11 @@ use std::{
 };
 use winit::event_loop::EventLoopProxy;
 
+use crate::parser::Point;
 #[allow(unused_imports)]
 use crate::{
     BOUNDARY, Command, GRID, ORIGIN, SINGLE, Signal, TOOL, View,
-    config::Config,
+    cli::Cli,
     gui::Gui,
     interpreter::InterpreterError,
     interpreter::{BlockSummary, Interpreter},
@@ -141,10 +142,10 @@ impl Tui {
     /// Returns [`Error`](anyhow::Error) on failure to read [`Source`] file or build the [`Machine`].
     pub fn build(
         signal: Receiver<Signal>,
-        config: Config,
+        cli: Cli,
         proxy: EventLoopProxy<Command>,
     ) -> anyhow::Result<Self> {
-        let src = match &config.filepath {
+        let src = match &cli.source {
             Some(path) => Source::from_file(path),
             None => Source::from_stdin(),
         }?;
@@ -160,7 +161,7 @@ impl Tui {
             boundary: BOUNDARY,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
-                Machine::build(config.max_travels(), Unit::default())?,
+                Machine::build(Point::new(500.0, 250.0, 250.0), Unit::default())?,
             ),
             current: 0,
             total: None,

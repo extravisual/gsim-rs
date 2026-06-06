@@ -1,14 +1,15 @@
-pub mod config;
-pub mod geometry;
-pub mod gui;
-pub mod interpreter;
+mod cli;
+mod config;
+mod geometry;
+mod gui;
+mod interpreter;
 pub mod lexer;
-pub mod machine;
+mod machine;
 pub mod parser;
 pub mod source;
-pub mod tui;
+mod tui;
 
-use crate::{config::Config, gui::Gui, machine::MotionSummary, tui::Tui};
+use crate::{cli::Cli, gui::Gui, machine::MotionSummary, tui::Tui};
 use clap::Parser;
 use std::fmt::Display;
 
@@ -92,10 +93,10 @@ fn display_banner() {
 pub fn run() -> anyhow::Result<()> {
     display_banner();
     let (sender, receiver) = std::sync::mpsc::channel();
-    let config = Config::parse();
+    let cli = Cli::parse();
 
-    let gui = Gui::build(sender, config.max_travels())?;
-    let tui = Tui::build(receiver, config, gui.create_proxy())?;
+    let gui = Gui::build(sender)?;
+    let tui = Tui::build(receiver, cli, gui.create_proxy())?;
 
     let tui = std::thread::Builder::new()
         .name("TUI".to_string())

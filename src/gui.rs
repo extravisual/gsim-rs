@@ -69,13 +69,13 @@ impl Gui {
     ///
     /// # Errors
     /// Returns [`EventLoopError`] on failure to build the event loop.
-    pub fn build(signal: Sender<Signal>, max_travels: Point) -> Result<Self, EventLoopError> {
+    pub fn build(signal: Sender<Signal>) -> Result<Self, EventLoopError> {
         let event_loop = EventLoop::<Command>::with_user_event().build()?;
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
         Ok(Self {
             signal,
-            max_travels,
+            max_travels: Point::new(500.0, 250.0, 250.0),
             current_command: None,
             graphics: None,
             error: None,

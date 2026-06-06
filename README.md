@@ -18,6 +18,8 @@ The control interface is built in **Ratatui** and the simulation is done using *
 machine. These instructions cause the machine to move in extremely precise & controlled
 manner to make all types of geometries.
 
+This project aims to simulate **Fanuc** flavour of G-code for a **vertical CNC milling** machine.
+
 <br>
 
 ## Architecture

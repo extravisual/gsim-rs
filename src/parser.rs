@@ -1329,14 +1329,14 @@ mod tests {
     // helper for tests
     // returns a parsed vector of gcodes
     fn tokenize_parse(tokens: &str) -> Result<Vec<GCode>, ParserError> {
-        let mut parser = Parser::new(Lexer::new(Source::from_string(tokens)));
+        let mut parser = Parser::new(Lexer::new(Source::from_str(tokens)));
         parser.next().unwrap().map(|block| block.gcodes.collect())
     }
 
     // helper for tests
     // returns a parsed mcode
     fn tokenize_parse_m(tokens: &str) -> Result<MCode, ParserError> {
-        let mut parser = Parser::new(Lexer::new(Source::from_string(tokens)));
+        let mut parser = Parser::new(Lexer::new(Source::from_str(tokens)));
         parser.next().unwrap().map(|block| block.mcode.unwrap())
     }
 
