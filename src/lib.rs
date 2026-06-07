@@ -13,6 +13,9 @@ use crate::{cli::Cli, gui::Gui, machine::MotionSummary, tui::Tui};
 use clap::Parser;
 use std::fmt::Display;
 
+/// Allowed variance when comparing floating points.
+const FLOAT_VARIANCE: f32 = 1e-5;
+
 /// Single block execution at program start.
 pub const SINGLE: bool = false;
 /// Tool visibility at program start.

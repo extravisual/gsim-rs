@@ -1,3 +1,51 @@
+//! # GSim Configuration
+//!
+//! Configuration file parser.
+//! Reads and parses **JSON** config file at a provided file path.
+//!
+//! ## Example
+//! The following is an example of a valid config file:
+//! ```
+//! {
+//!  "units": "metric",
+//!  "stock_size": {
+//!    "x": 500,
+//!    "y": 500,
+//!    "z": 500
+//!  },
+//!  "zero_pos": {
+//!    "x": "mid",
+//!    "y": "mid",
+//!    "z": "max"
+//!  },
+//!  "tools": [
+//!    {
+//!      "number": 1,
+//!      "diameter": 5,
+//!      "length": 10
+//!    },
+//!    {
+//!      "number": 2,
+//!      "diameter": 5,
+//!      "length": 10
+//!    }
+//!  ]
+//! }
+//! ```
+//! - Treats every dimension in `metric` system.
+//! - Creates a stock with each side measuring `500mm`.
+//! - Anchors the `zero_pos` at middle of **X**(250mm), middle of **Y**(250mm) and top of
+//! **Z**(500mm).
+//! - Creates two tools(numbered `1` & `2`), each with `diameter` `5mm` and `length` `10mm`.
+//!
+//! ## Restrictions
+//! - Any **excess elements** will be rejected.
+//! - `units` can only have two possible values: `imperial` or `metric`.
+//! - Every stock dimension **must** be positive and non-zero.
+//! - `zero_pos` for each axis can only have three possible values: `zero`, `mid` or `max`.
+//! - Each tool `diameter` and `length` **must** be positive and non-zero.
+
+use super::FLOAT_VARIANCE;
 use serde::Deserialize;
 
 /// Program configuration at start.
@@ -26,14 +74,16 @@ pub enum Unit {
 /// A 3D point in space.
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub struct Point {
-    x: f32,
-    y: f32,
-    z: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 impl PartialEq for Point {
     fn eq(&self, other: &Self) -> bool {
-        self.x - other.x < 1e-10 && self.y - other.y < 1e-10 && self.z - other.z < 1e-10
+        (self.x - other.x).abs() < FLOAT_VARIANCE
+            && (self.y - other.y).abs() < FLOAT_VARIANCE
+            && (self.z - other.z).abs() < FLOAT_VARIANCE
     }
 }
 
@@ -75,6 +125,24 @@ pub enum AxisPoint {
 }
 
 impl Config {
+    /// Constructs a config by attempting to read a JSON file and then parse it.
+    ///
+    /// For additional information checkout [`Self::from_str`].
+    ///
+    /// # Errors:
+    /// - [`ConfigError::IO`] -- Could not read the file at provided path.
+    /// - [`ConfigError::Parse`] -- Could not parse the provided slice.
+    /// - [`ConfigError::StockNonPositive`] -- At least one of the stock axis was zero or negative.
+    /// - [`ConfigError::ToolNonPositive`] -- At least one of the tools has zero or negative
+    ///   diameter or length.
+    pub fn from_file(path: &str) -> Result<Self, ConfigError> {
+        Self::from_str(
+            std::fs::read_to_string(path)
+                .map_err(|e| ConfigError::IO(e, path.to_owned()))?
+                .as_str(),
+        )
+    }
+
     /// Constructs a config by attempting to parse a provided string slice.
     ///
     /// # Errors:
@@ -82,19 +150,19 @@ impl Config {
     /// - [`ConfigError::StockNonPositive`] -- At least one of the stock axis was zero or negative.
     /// - [`ConfigError::ToolNonPositive`] -- At least one of the tools has zero or negative
     ///   diameter or length.
-    pub fn build(json: &str) -> Result<Self, ConfigError> {
+    pub fn from_str(json: &str) -> Result<Self, ConfigError> {
         let mut ret: Self = serde_json::from_str(json)?;
 
         // make sure stock size and tool diameter and length are positive and non zero
-        if ret.stock_size.x < 1e-5 {
+        if ret.stock_size.x < FLOAT_VARIANCE {
             Err(ConfigError::StockNonPositive('X'))
-        } else if ret.stock_size.y < 1e-5 {
+        } else if ret.stock_size.y < FLOAT_VARIANCE {
             Err(ConfigError::StockNonPositive('Y'))
-        } else if ret.stock_size.z < 1e-5 {
+        } else if ret.stock_size.z < FLOAT_VARIANCE {
             Err(ConfigError::StockNonPositive('Z'))
         } else {
             for tool in &mut ret.tools {
-                if tool.diameter < 1e-5 || tool.length < 1e-5 {
+                if tool.diameter < FLOAT_VARIANCE || tool.length < FLOAT_VARIANCE {
                     return Err(ConfigError::ToolNonPositive(tool.number));
                 }
             }
@@ -129,6 +197,8 @@ impl Config {
 /// Possible errors that can happen during [`Config`] construction.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    #[error("failed to read file at '{}'", .1)]
+    IO(#[source] std::io::Error, String),
     #[error("failed to parse JSON")]
     Parse(#[from] serde_json::Error),
     #[error("stock dimension is either negative or zero for '{}' axis", .0)]
@@ -140,6 +210,12 @@ pub enum ConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic = "failed to read file at 'notfound'"]
+    fn file() {
+        Config::from_file("notfound").unwrap_or_else(|e| panic!("{e}"));
+    }
 
     #[test]
     fn good() {
@@ -170,7 +246,7 @@ mod tests {
               ]
             }";
 
-        let ret = Config::build(json).unwrap();
+        let ret = Config::from_str(json).unwrap();
 
         // stock and tool sizes will always be positive regardless of the sign
         assert_eq!(
@@ -237,7 +313,7 @@ mod tests {
               ]
             }";
 
-        Config::build(json).unwrap();
+        Config::from_str(json).unwrap();
     }
 
     #[test]
@@ -260,7 +336,7 @@ mod tests {
               \"excess\": \"invalid\"
             }";
 
-        Config::build(json).unwrap();
+        Config::from_str(json).unwrap();
     }
 
     #[test]
@@ -282,7 +358,7 @@ mod tests {
               \"tools\": []
             }";
 
-        Config::build(json).unwrap_or_else(|e| panic!("{e}"));
+        Config::from_str(json).unwrap_or_else(|e| panic!("{e}"));
     }
 
     #[test]
@@ -310,6 +386,6 @@ mod tests {
               ]
             }";
 
-        Config::build(json).unwrap_or_else(|e| panic!("{e}"));
+        Config::from_str(json).unwrap_or_else(|e| panic!("{e}"));
     }
 }
