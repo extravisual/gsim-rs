@@ -17,8 +17,10 @@
       system:
       let
         overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs {
-          inherit system overlays;
+        pkgs = import nixpkgs { inherit system overlays; };
+        # Configure your toolchain and include essential extensions
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-src" "rust-analyzer" ];
         };
       in
       {
@@ -28,6 +30,7 @@
             buildInputs = [
               pkg-config
               rust-bin.nightly.latest.default
+              rustToolchain
               gcc
               libc
               libX11
@@ -39,6 +42,8 @@
               vulkan-loader
               wayland
             ];
+
+          RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
 
             shellHook = ''
               export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${builtins.toString (pkgs.lib.makeLibraryPath buildInputs)}";
