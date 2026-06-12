@@ -9,7 +9,7 @@ pub mod parser;
 pub mod source;
 mod tui;
 
-use crate::{cli::Cli, gui::Gui, machine::MotionSummary, tui::Tui};
+use crate::{cli::Cli, config::Config, gui::Gui, machine::MotionSummary, tui::Tui};
 use clap::Parser;
 use std::fmt::Display;
 
@@ -95,11 +95,13 @@ fn display_banner() {
 /// using a [`Channel`](std::sync::mpsc::channel) and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
 pub fn run() -> anyhow::Result<()> {
     display_banner();
+
     let (sender, receiver) = std::sync::mpsc::channel();
     let cli = Cli::parse();
+    let config = Config::from_file(cli.config.as_str())?;
 
     let gui = Gui::build(sender)?;
-    let tui = Tui::build(receiver, cli, gui.create_proxy())?;
+    let tui = Tui::build(receiver, &cli, &config, gui.create_proxy())?;
 
     let tui = std::thread::Builder::new()
         .name("TUI".to_string())

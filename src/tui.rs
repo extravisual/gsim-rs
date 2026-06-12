@@ -30,7 +30,6 @@ use std::{
 };
 use winit::event_loop::EventLoopProxy;
 
-use crate::parser::Point;
 #[allow(unused_imports)]
 use crate::{
     BOUNDARY, Command, GRID, ORIGIN, SINGLE, Signal, TOOL, View,
@@ -45,6 +44,7 @@ use crate::{
     parser::{CodeBlock, MCode, Parser},
     source::Source,
 };
+use crate::{config::Config, config::Point};
 
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
@@ -142,7 +142,8 @@ impl Tui {
     /// Returns [`Error`](anyhow::Error) on failure to read [`Source`] file or build the [`Machine`].
     pub fn build(
         signal: Receiver<Signal>,
-        cli: Cli,
+        cli: &Cli,
+        config: &Config,
         proxy: EventLoopProxy<Command>,
     ) -> anyhow::Result<Self> {
         let src = match &cli.source {
@@ -604,17 +605,17 @@ impl Tui {
         let mut line1 = vec![
             Span::styled("X", THEME.machine),
             Span::styled(": ", THEME.root),
-            Span::styled(pos.x().to_string(), THEME.root.bold()),
+            Span::styled(pos.x.to_string(), THEME.root.bold()),
             unit.clone(),
             Span::styled(" | ", THEME.root),
             Span::styled("Y", THEME.machine),
             Span::styled(": ", THEME.root),
-            Span::styled(pos.y().to_string(), THEME.root.bold()),
+            Span::styled(pos.y.to_string(), THEME.root.bold()),
             unit.clone(),
             Span::styled(" | ", THEME.root),
             Span::styled("Z", THEME.machine),
             Span::styled(": ", THEME.root),
-            Span::styled(pos.z().to_string(), THEME.root.bold()),
+            Span::styled(pos.z.to_string(), THEME.root.bold()),
             unit.clone(),
             Span::styled(" | ", THEME.root),
             Span::styled("T", THEME.machine),

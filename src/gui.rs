@@ -8,11 +8,11 @@
 #[allow(unused_imports)]
 use crate::{
     Command, Signal, View,
+    config::Point,
     geometry::{
         BufferAction, LineInstance, LineInstancesTracker, StaticConfig, ToolInstance, Uniforms,
     },
     machine::HOME_POS,
-    parser::Point,
     tui::Tui,
 };
 use std::{

@@ -5,7 +5,7 @@
 //!
 //! ## Example
 //! The following is an example of a valid config file:
-//! ```
+//! ```text
 //! {
 //!  "units": "metric",
 //!  "stock_size": {
@@ -17,6 +17,11 @@
 //!    "x": "mid",
 //!    "y": "mid",
 //!    "z": "max"
+//!  },
+//!  "start_pos": {
+//!    "x": 0,
+//!    "y": 0,
+//!    "z": 100
 //!  },
 //!  "tools": [
 //!    {
@@ -45,7 +50,7 @@
 //! - `zero_pos` for each axis can only have three possible values: `zero`, `mid` or `max`.
 //! - Each tool `diameter` and `length` **must** be positive and non-zero.
 
-use super::FLOAT_VARIANCE;
+use crate::FLOAT_VARIANCE;
 use serde::Deserialize;
 
 /// Program configuration at start.
@@ -59,6 +64,9 @@ pub struct Config {
     pub stock_size: Point,
     /// Work offset zero position, relative to stock dimensions.
     pub zero_pos: ZeroPosition,
+    /// Start position at the beginning of the program.
+    /// This is relative to [`Self::zero_pos`].
+    pub start_pos: Point,
     /// Collection of tool configurations to be used during G-code execution.
     pub tools: Vec<ToolConfig>,
 }
@@ -197,12 +205,16 @@ impl Config {
 /// Possible errors that can happen during [`Config`] construction.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    /// Failed to read the config file.
     #[error("failed to read file at '{}'", .1)]
     IO(#[source] std::io::Error, String),
+    /// Failed to parse the config file as JSON.
     #[error("failed to parse JSON")]
     Parse(#[from] serde_json::Error),
+    /// Stock dimensions are not all positive.
     #[error("stock dimension is either negative or zero for '{}' axis", .0)]
     StockNonPositive(char),
+    /// Tool dimensions are not all positive.
     #[error("diameter or length is either negative or zero for tool number '{}'", .0)]
     ToolNonPositive(u32),
 }
@@ -231,6 +243,11 @@ mod tests {
                 \"x\": \"mid\",
                 \"y\": \"mid\",
                 \"z\": \"max\"
+              },
+              \"start_pos\" : {
+                \"x\": 0,
+                \"y\": 0,
+                \"z\": 100
               },
               \"tools\": [
                 {
@@ -262,6 +279,11 @@ mod tests {
                     x: AxisPoint::Mid,
                     y: AxisPoint::Mid,
                     z: AxisPoint::Max
+                },
+                start_pos: Point {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 100.0
                 },
                 tools: vec![
                     ToolConfig {
@@ -304,6 +326,11 @@ mod tests {
                 \"y\": \"mid\",
                 \"z\": \"max\"
               },
+              \"start_pos\" : {
+                \"x\": 0,
+                \"y\": 0,
+                \"z\": 100
+              },
               \"tools\": [
                 {
                   \"number\": 1,
@@ -317,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "unknown field `excess`, expected one of `units`, `stock_size`, `zero_pos`, `tools`"]
+    #[should_panic = "unknown field `excess`, expected one of `units`, `stock_size`, `zero_pos`, `start_pos`, `tools`"]
     fn excess() {
         let json = "
             {
@@ -331,6 +358,11 @@ mod tests {
                 \"x\": \"mid\",
                 \"y\": \"mid\",
                 \"z\": \"max\"
+              },
+              \"start_pos\" : {
+                \"x\": 0,
+                \"y\": 0,
+                \"z\": 100
               },
               \"tools\": [],
               \"excess\": \"invalid\"
@@ -355,6 +387,11 @@ mod tests {
                 \"y\": \"mid\",
                 \"z\": \"max\"
               },
+              \"start_pos\" : {
+                \"x\": 0,
+                \"y\": 0,
+                \"z\": 100
+              },
               \"tools\": []
             }";
 
@@ -376,6 +413,11 @@ mod tests {
                 \"x\": \"mid\",
                 \"y\": \"mid\",
                 \"z\": \"max\"
+              },
+              \"start_pos\" : {
+                \"x\": 0,
+                \"y\": 0,
+                \"z\": 100
               },
               \"tools\": [
                 {

@@ -2,7 +2,7 @@
 //!
 //! Command line arguments parser.
 //! Extracts the first argument as **G-code source** file path,
-//! with optional [`Config`] file path.
+//! with optional [`Config`](crate::config) file path.
 //!
 //! By default, looks for `gsim.json` config file in the current directory.
 
