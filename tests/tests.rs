@@ -10,7 +10,7 @@ use gsim_rs::{
 
 #[test]
 fn tokenize_source() {
-    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
+    let src = Source::from_str("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
 
     let mut lex = Lexer::new(src);
 
@@ -37,7 +37,7 @@ fn tokenize_source() {
 
 #[test]
 fn parse_lexer() {
-    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
+    let src = Source::from_str("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
 
     let lex = Lexer::new(src);
 

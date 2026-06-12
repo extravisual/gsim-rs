@@ -5,12 +5,12 @@
 
 #[allow(unused_imports)]
 use crate::{
-    lexer::Prefix,
+    config::Point,
     machine::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
         Positioning, ReturnLevel, Unit,
     },
-    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Plane, Point},
+    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Plane},
 };
 
 /// Represents a summary consumed [`CodeBlock`].
@@ -109,9 +109,9 @@ impl Interpreter {
 
                 // always make the machine center as g54 offset
                 GCode::WorkCoord => machine.set_work_offset(Point::new(
-                    machine.max_travels().x() / 2.0,
-                    machine.max_travels().y() / 2.0,
-                    machine.max_travels().z() / 2.0,
+                    machine.max_travels().x / 2.0,
+                    machine.max_travels().y / 2.0,
+                    machine.max_travels().z / 2.0,
                 )),
 
                 GCode::CancelCanned => machine.cancel_canned(),
@@ -275,5 +275,5 @@ pub enum InterpreterError {
     Parser(#[from] ParserError),
     /// At least one code from a code block exists that was not consumed.
     #[error("unconsumed prefix: '{}'", *.0 as char)]
-    ExcessCode(Prefix),
+    ExcessCode(u8),
 }

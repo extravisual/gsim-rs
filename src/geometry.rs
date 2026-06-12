@@ -28,14 +28,15 @@
 
 use crate::{
     BOUNDARY, GRID, ORIGIN, TOOL, View,
+    config::Point,
     machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
-    parser::{Plane, Point},
+    parser::Plane,
 };
-use std::{cmp::Ordering, f64::consts::PI, mem::size_of};
+use std::{cmp::Ordering, f32::consts::PI, mem::size_of};
 use winit::dpi::PhysicalSize;
 
 /// Stroke width for toolpath [`LineInstance`]s in pixels.
-const DEFAULT_STROKE_WIDTH: f32 = 1.5;
+const DEFAULT_STROKE_WIDTH: f32 = 1.25;
 /// Stroke width for static [`LineInstance`]s showing the machine boundary box.
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
 /// Stroke width for static [`LineInstance`]s showing all axes, rooted at origin.
@@ -56,7 +57,7 @@ const Z_AXIS_COLOR: [f32; 3] = [0.0, 0.0, 1.0];
 const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 
 /// Machine units travelled per frame.
-const SPEED: f64 = 5.0;
+const SPEED: f32 = 5.0;
 
 const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
@@ -169,9 +170,9 @@ impl LineInstance {
     ///
     /// The grid sits the farthest and machine boundary the nearest, with origin lines in between.
     pub fn statics(max_travels: Point, static_config: StaticConfig) -> Vec<Self> {
-        let x = max_travels.x() as f32;
-        let y = max_travels.y() as f32;
-        let z = max_travels.z() as f32;
+        let x = max_travels.x;
+        let y = max_travels.y;
+        let z = max_travels.z;
         let avg = (x + y + z) / 3.0;
 
         // grid square size, in machine units
@@ -369,8 +370,8 @@ impl LineInstance {
     /// with [`DEFAULT_STROKE_WIDTH`] and [`RAPID_MOVE_COLOR`].
     pub fn rapid_move(start: Point, end: Point) -> Self {
         Self {
-            start: [start.x() as f32, start.y() as f32, start.z() as f32],
-            end: [end.x() as f32, end.y() as f32, end.z() as f32],
+            start: [start.x, start.y, start.z],
+            end: [end.x, end.y, end.z],
             color: RAPID_MOVE_COLOR,
             stroke_width: DEFAULT_STROKE_WIDTH,
             depth: 0.5,
@@ -381,8 +382,8 @@ impl LineInstance {
     /// with [`DEFAULT_STROKE_WIDTH`] and [`FEED_MOVE_COLOR`].
     pub fn feed_move(start: Point, end: Point) -> Self {
         Self {
-            start: [start.x() as f32, start.y() as f32, start.z() as f32],
-            end: [end.x() as f32, end.y() as f32, end.z() as f32],
+            start: [start.x, start.y, start.z],
+            end: [end.x, end.y, end.z],
             color: FEED_MOVE_COLOR,
             stroke_width: DEFAULT_STROKE_WIDTH,
             depth: 0.5,
@@ -427,7 +428,7 @@ impl LineInstances {
         // direction from start to end
         let dir = end - start;
         // distance between start and end points
-        let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
+        let dist = (dir.x.powi(2) + dir.y.powi(2) + dir.z.powi(2)).sqrt();
 
         if dist <= SPEED {
             return Self::Linear(Box::new([get_instance(start, end)].into_iter()));
@@ -447,7 +448,7 @@ impl LineInstances {
             let remaining = end - next;
 
             // use dot product to see if the next point is between start and end
-            if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
+            if remaining.x * dir.x + remaining.y * dir.y + remaining.z * dir.z <= 0.0 {
                 current = end;
             } else {
                 current = next;
@@ -482,9 +483,9 @@ impl LineInstances {
         };
         let steps_count = (sweep / step_angular).ceil().abs();
         let step_linear = match plane {
-            Plane::XY => arc.end.z() - arc.start.z(),
-            Plane::XZ => arc.end.y() - arc.start.y(),
-            Plane::YZ => arc.end.x() - arc.start.x(),
+            Plane::XY => arc.end.z - arc.start.z,
+            Plane::XZ => arc.end.y - arc.start.y,
+            Plane::YZ => arc.end.x - arc.start.x,
         } / steps_count; // amount to move the third axis for each step
 
         if sweep.abs() <= step_angular.abs() {
@@ -536,15 +537,15 @@ impl LineInstances {
                     Plane::XY => Point::new(
                         arc.center.first() + radius * current_sweep.cos(),
                         arc.center.second() + radius * current_sweep.sin(),
-                        current_pos.z() + step_linear,
+                        current_pos.z + step_linear,
                     ),
                     Plane::XZ => Point::new(
                         arc.center.first() + radius * current_sweep.cos(),
-                        current_pos.y() + step_linear,
+                        current_pos.y + step_linear,
                         arc.center.second() + radius * current_sweep.sin(),
                     ),
                     Plane::YZ => Point::new(
-                        current_pos.x() + step_linear,
+                        current_pos.x + step_linear,
                         arc.center.first() + radius * current_sweep.cos(),
                         arc.center.second() + radius * current_sweep.sin(),
                     ),
@@ -665,7 +666,7 @@ impl LineInstancesTracker {
         .sqrt();
 
         // render if the len is now more than acceptable difference between two frames
-        let render = self.len >= SPEED as f32;
+        let render = self.len >= SPEED;
         if render {
             self.len = 0.0;
         }
@@ -721,7 +722,7 @@ impl ToolInstance {
     /// Creates a new [`ToolInstance`], which will be rendered at the provided [`Point`].
     pub fn at_point(point: Point) -> Self {
         Self {
-            position: [point.x() as f32, point.y() as f32, point.z() as f32],
+            position: [point.x, point.y, point.z],
         }
     }
 
@@ -764,12 +765,7 @@ impl Uniforms {
     /// Constructs a new [`Uniforms`] with `view` set to [`View::default`].
     pub fn new(window_size: PhysicalSize<u32>, max_travels: Point) -> Self {
         let window_size = [window_size.width as f32, window_size.height as f32];
-        let max_travels = [
-            max_travels.x() as f32,
-            max_travels.y() as f32,
-            max_travels.z() as f32,
-            0.0,
-        ];
+        let max_travels = [max_travels.x, max_travels.y, max_travels.z, 0.0];
         let view = View::default();
 
         let machine_size = machine_size(max_travels.as_slice(), view);

@@ -13,8 +13,10 @@
 //! ## Reference
 //! [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-use crate::lexer::{
-    Block, *, {Float, Group, Int, Prefix},
+use crate::{
+    FLOAT_VARIANCE,
+    config::Point,
+    lexer::{Block, *},
 };
 use std::{
     cmp::PartialEq,
@@ -31,112 +33,45 @@ pub enum Plane {
     YZ,
 }
 
-/// Represents a **3D Point** in space.
-///
-/// The fields represent X, Y, and Z axis respectively.
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
-pub struct Point(Float, Float, Float);
-
 impl Point {
     /// Constructor for a [`Point`] from X,Y, and Z axis values.
-    pub const fn new(x: Float, y: Float, z: Float) -> Self {
-        Self(x, y, z)
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
     }
 
-    /// Returns a tuple of [`Float`] values for each axis.
-    pub fn get(&self) -> (Float, Float, Float) {
-        (self.0, self.1, self.2)
-    }
-
-    /// Returns current position of the 'X' axis.
-    pub fn x(&self) -> Float {
-        self.0
-    }
-
-    /// Returns current position of the 'Y' axis.
-    pub fn y(&self) -> Float {
-        self.1
-    }
-
-    /// Returns current position of the 'Z' axis.
-    pub fn z(&self) -> Float {
-        self.2
-    }
-
-    /// Set every axis.
-    pub fn set(&mut self, x: Float, y: Float, z: Float) {
-        self.0 = x;
-        self.1 = y;
-        self.2 = z;
-    }
-
-    /// Optionally set one or multiple axes.
-    /// `None` arguments will retain the older value.
-    pub fn set_optional(&mut self, x: Option<Float>, y: Option<Float>, z: Option<Float>) {
-        self.0 = x.unwrap_or(self.0);
-        self.1 = y.unwrap_or(self.1);
-        self.2 = z.unwrap_or(self.2);
-    }
-
-    /// Checks if any axis of `self` is negative or not.
-    pub fn any_negative(&self) -> bool {
-        self.0 < 0.0 || self.1 < 0.0 || self.2 < 0.0
-    }
-
-    /// Returns a new [`Point`] of ratios for all 3 axes of `self`: (`x`:`y`, `x`:`z`, `y`:`z`)
-    pub const fn ratio(&self) -> Self {
-        Self::new(self.0 / self.1, self.0 / self.2, self.1 / self.2)
-    }
-
-    /// Compares absolute values of each axis of `self` with another [`Point`].
-    ///
-    /// Returns `false` if all fields of `self` are less than corresponding fields of `other`,
-    /// otherwise returns `true` which means at least one field of `self` exceeds that of `other`.
-    pub fn over_abs(&self, other: &Self) -> bool {
-        self.0.abs() > other.0.abs() || self.1.abs() > other.1.abs() || self.2.abs() > other.2.abs()
-    }
-
-    /// Compares absolute values of each axis of `self` with another [`Point`].
-    ///
-    /// Returns `false` if all fields of `self` are greater than corresponding fields of `other`,
-    /// otherwise returns `true` which means at least one field of `other` exceeds that of `self`.
-    pub fn under_abs(&self, other: &Self) -> bool {
-        self.0.abs() < other.0.abs() || self.1.abs() < other.1.abs() || self.2.abs() < other.2.abs()
-    }
-
-    /// Treats all the axes values in *Metric* system, and converts them to *Imperial* system.
+    /// Treats all the axes values in **metric** system, and converts them to **imperial** system.
     pub fn to_imperial(&mut self) {
-        self.0 /= 25.4;
-        self.1 /= 25.4;
-        self.2 /= 25.4;
+        self.x /= 25.4;
+        self.y /= 25.4;
+        self.z /= 25.4;
     }
 
-    /// Treats all the axes values in *Imperial* system, and converts them to *Metric* system.
+    /// Treats all the axes values in **imperial** system, and converts them to **metric** system.
     pub fn to_metric(&mut self) {
-        self.0 *= 25.4;
-        self.1 *= 25.4;
-        self.2 *= 25.4;
+        self.x *= 25.4;
+        self.y *= 25.4;
+        self.z *= 25.4;
     }
 
     /// Calculates distance between `self` and another [`Point`] on a certain plane.
-    pub fn dist(&self, other: &Self, plane: Plane) -> Float {
+    pub fn dist(&self, other: &Self, plane: Plane) -> f32 {
         match plane {
-            Plane::XY => ((self.x() - other.x()).powi(2) + (self.y() - other.y()).powi(2)).sqrt(),
-            Plane::XZ => ((self.x() - other.x()).powi(2) + (self.z() - other.z()).powi(2)).sqrt(),
-            Plane::YZ => ((self.y() - other.y()).powi(2) + (self.z() - other.z()).powi(2)).sqrt(),
+            Plane::XY => ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt(),
+            Plane::XZ => ((self.x - other.x).powi(2) + (self.z - other.z).powi(2)).sqrt(),
+            Plane::YZ => ((self.y - other.y).powi(2) + (self.z - other.z).powi(2)).sqrt(),
         }
     }
 
     /// Multiplies the provided `factor` to each axis value and returns a new [`Point`] with these
     /// new values.
-    pub fn mul_float(&self, factor: f64) -> Self {
-        Self::new(self.x() * factor, self.y() * factor, self.z() * factor)
+    pub fn mul_float(&self, factor: f32) -> Self {
+        Self::new(self.x * factor, self.y * factor, self.z * factor)
     }
 
     /// Divides each axis value with the provided `divisor` and returns a new [`Point`] with these
     /// new values.
-    pub fn div_float(&self, divisor: f64) -> Self {
-        Self::new(self.x() / divisor, self.y() / divisor, self.z() / divisor)
+    pub fn div_float(&self, divisor: f32) -> Self {
+        Self::new(self.x / divisor, self.y / divisor, self.z / divisor)
     }
 }
 
@@ -144,7 +79,7 @@ impl Sub for Point {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self::new(self.x() - rhs.x(), self.y() - rhs.y(), self.z() - rhs.z())
+        Self::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
     }
 }
 
@@ -152,62 +87,46 @@ impl Add for Point {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self::new(self.x() + rhs.x(), self.y() + rhs.y(), self.z() + rhs.z())
+        Self::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
     }
 }
 
 /// Same as [`Point`] but the fields are [`Option`]al.
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
-pub struct PartialPoint(Option<Float>, Option<Float>, Option<Float>);
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PartialPoint {
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub z: Option<f32>,
+}
 
 impl PartialPoint {
-    /// Constructs a [`PartialPoint`] using [`Option<Float>`] for each axis.
-    pub fn new(x: Option<Float>, y: Option<Float>, z: Option<Float>) -> Self {
-        PartialPoint(x, y, z)
-    }
-
-    /// Returns a tuple of [`Option<Float>`] values for each axis.
-    pub fn get(&self) -> (Option<Float>, Option<Float>, Option<Float>) {
-        (self.0, self.1, self.2)
-    }
-
-    /// Returns current position of the 'X' axis, if present.
-    pub fn x(&self) -> Option<Float> {
-        self.0
-    }
-
-    /// Returns current position of the 'Y' axis, if present.
-    pub fn y(&self) -> Option<Float> {
-        self.1
-    }
-
-    /// Returns current position of the 'Z' axis, if present.
-    pub fn z(&self) -> Option<Float> {
-        self.2
+    /// Constructs a [`PartialPoint`] using [`Option<f32>`] for each axis.
+    pub fn new(x: Option<f32>, y: Option<f32>, z: Option<f32>) -> Self {
+        PartialPoint { x, y, z }
     }
 
     /// Check if all the axis are `None` variants.
     pub fn are_none(&self) -> bool {
-        self.0.is_none() && self.1.is_none() && self.2.is_none()
+        self.x.is_none() && self.y.is_none() && self.z.is_none()
     }
 
     /// Check if all the axis are `Some` variants.
     pub fn are_some(&self) -> bool {
-        self.0.is_some() && self.1.is_some() && self.2.is_some()
+        self.x.is_some() && self.y.is_some() && self.z.is_some()
     }
 
-    /// Treats all the axes values in *Metric* system, and converts them to *Imperial* system.
+    /// Treats all the axes values in **metric** system, and converts them to **imperial** system.
     pub fn to_imperial(&mut self) {
-        self.0 = self.0.map(|x| x / 25.4);
-        self.1 = self.1.map(|y| y / 25.4);
-        self.2 = self.2.map(|z| z / 25.4);
+        self.x = self.x.map(|x| x / 25.4);
+        self.y = self.y.map(|y| y / 25.4);
+        self.z = self.z.map(|z| z / 25.4);
     }
 
-    /// Treats all the axes values in *Imperial* system, and converts them to *Metric* system.
+    /// Treats all the axes values in **imperial** system, and converts them to **metric** system.
     pub fn to_metric(&mut self) {
-        self.0 = self.0.map(|x| x * 25.4);
-        self.1 = self.1.map(|y| y * 25.4);
-        self.2 = self.2.map(|z| z * 25.4);
+        self.x = self.x.map(|x| x * 25.4);
+        self.y = self.y.map(|y| y * 25.4);
+        self.z = self.z.map(|z| z * 25.4);
     }
 }
 
@@ -215,15 +134,15 @@ impl Display for PartialPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut axes = vec![];
 
-        if let Some(x) = self.x() {
+        if let Some(x) = self.x {
             axes.push(format!("X: {x}"));
         }
 
-        if let Some(y) = self.y() {
+        if let Some(y) = self.y {
             axes.push(format!("Y: {y}"));
         }
 
-        if let Some(z) = self.z() {
+        if let Some(z) = self.z {
             axes.push(format!("Z: {z}"));
         }
 
@@ -237,13 +156,13 @@ impl Display for PartialPoint {
 
 /// Circular Interpolation helper.
 ///
-/// Both relative point and radius must not appear in the same block.
+/// Ensures that both relative point and radius do not appear in the same block.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CircleMethod {
     /// Relative coordinate of circle center with **I, J & K** from current position.
     RelativePoint(PartialPoint),
     /// Explicit radius specified with **R**.
-    FixedRadius(Float),
+    FixedRadius(f32),
 }
 
 impl Display for CircleMethod {
@@ -255,20 +174,20 @@ impl Display for CircleMethod {
     }
 }
 
-/// Tries to retrieve an [`Int`] from a [`Suffix`].
+/// Tries to retrieve an `u32` from a [`Suffix`].
 ///
-/// Returns [`ParserError::WrongSuffixType`] if the type is not `Int`.
-fn try_int(token: &Token) -> Result<Int, ParserError> {
+/// Returns [`ParserError::WrongSuffixType`] if the type is not [`Suffix::Int`].
+fn try_int(token: &Token) -> Result<u32, ParserError> {
     token
         .suffix
         .int()
         .ok_or(ParserError::WrongSuffixType(token.prefix))
 }
 
-/// Tries to retrieve a [`Float`] from a [`Suffix`].
+/// Tries to retrieve a `f32` from a [`Suffix`].
 ///
-/// Returns [`ParserError::WrongSuffixType`] if the type is not `Float`.
-fn try_float(token: &Token) -> Result<Float, ParserError> {
+/// Returns [`ParserError::WrongSuffixType`] if the type is not [`Suffix::Float`].
+fn try_float(token: &Token) -> Result<f32, ParserError> {
     token
         .suffix
         .float()
@@ -277,28 +196,28 @@ fn try_float(token: &Token) -> Result<Float, ParserError> {
 
 /// Represents a parsed & validated [`Token`].
 ///
-/// This type ensures that each [`Prefix`] is valid and is grouped with a valid [`Suffix`] type.
+/// This type ensures that each prefix is valid and is grouped with a valid [`Suffix`] type.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Code {
-    D(Int),
-    G(Int),
-    H(Int),
-    M(Int),
-    N(Int),
-    O(Int),
-    P(Int),
-    S(Int),
-    T(Int),
+    D(u32),
+    G(u32),
+    H(u32),
+    M(u32),
+    N(u32),
+    O(u32),
+    P(u32),
+    S(u32),
+    T(u32),
 
-    F(Float),
-    I(Float),
-    J(Float),
-    K(Float),
-    Q(Float),
-    R(Float),
-    X(Float),
-    Y(Float),
-    Z(Float),
+    F(f32),
+    I(f32),
+    J(f32),
+    K(f32),
+    Q(f32),
+    R(f32),
+    X(f32),
+    Y(f32),
+    Z(f32),
 }
 
 impl Code {
@@ -309,7 +228,7 @@ impl Code {
     ///
     /// # Errors
     /// Returns [`ParserError::UnknownPrefix`]
-    /// if a code with unknown [`Prefix`] is found.
+    /// if a code with unknown prefix is found.
     fn parse(token: &Token) -> Result<Self, ParserError> {
         let code = match token.prefix {
             b'D' => Self::D(try_int(token)?),
@@ -338,8 +257,8 @@ impl Code {
         Ok(code)
     }
 
-    /// Returns the **ASCII** [`Prefix`] of `self`.
-    pub fn prefix(&self) -> Prefix {
+    /// Returns the **ASCII** prefix of `self` as `u8`.
+    pub fn prefix(&self) -> u8 {
         match self {
             Code::D(_) => b'D',
             Code::G(_) => b'G',
@@ -376,27 +295,27 @@ impl Display for Code {
     }
 }
 
-/// Represents a collection of **unique** [`Code`]s **without 'G' or 'M'** [`Prefix`]es.
+/// Represents a collection of **unique** [`Code`]s **without 'G' or 'M'** prefixes.
 ///
-/// This type ensures that each `Prefix` is only present once in a [`CodeBlock`].
+/// This type ensures that each prefix is only present once in a [`CodeBlock`].
 #[derive(Debug, Default)]
 pub struct Codes {
-    d: Option<Int>,
-    f: Option<Float>,
-    h: Option<Int>,
-    i: Option<Float>,
-    j: Option<Float>,
-    k: Option<Float>,
-    n: Option<Int>,
-    o: Option<Int>,
-    p: Option<Int>,
-    q: Option<Float>,
-    r: Option<Float>,
-    s: Option<Int>,
-    t: Option<Int>,
-    x: Option<Float>,
-    y: Option<Float>,
-    z: Option<Float>,
+    d: Option<u32>,
+    f: Option<f32>,
+    h: Option<u32>,
+    i: Option<f32>,
+    j: Option<f32>,
+    k: Option<f32>,
+    n: Option<u32>,
+    o: Option<u32>,
+    p: Option<u32>,
+    q: Option<f32>,
+    r: Option<f32>,
+    s: Option<u32>,
+    t: Option<u32>,
+    x: Option<f32>,
+    y: Option<f32>,
+    z: Option<f32>,
 }
 
 impl Codes {
@@ -409,7 +328,7 @@ impl Codes {
     ///
     /// # Errors
     /// Returns [`ParserError::DuplicatePrefix`]
-    /// if a code with same [`Prefix`] is already present.
+    /// if a code with same prefix is already present.
     ///
     /// # Panics
     /// Panics if called with [`Code::G`] or [`Code::M`] variants.
@@ -453,7 +372,7 @@ impl Codes {
     }
 
     /// Removes the `f` field from `self` and returns it.
-    fn take_feed(&mut self) -> Option<Float> {
+    fn take_feed(&mut self) -> Option<f32> {
         self.f.take()
     }
 
@@ -463,14 +382,14 @@ impl Codes {
     /// Returns a tuple containing:
     /// - [`PartialPoint`] -- Destination coordinates.
     /// - [`CircleMethod`] -- Method to use for the circle.
-    /// - [`Option<Float>`] -- Feedrate, if provided.
+    /// - [`Option<f32>`] -- Feedrate, if provided.
     ///
     /// # Errors
     /// Returns [`ParserError::AmbiguousCircleMethod`] or [`ParserError::InvalidCircle`] on
     /// failure.
     pub fn take_circular(
         &mut self,
-    ) -> Result<(PartialPoint, CircleMethod, Option<Float>), ParserError> {
+    ) -> Result<(PartialPoint, CircleMethod, Option<f32>), ParserError> {
         let pos = self.take_partial_point();
         let feed = self.take_feed();
 
@@ -501,7 +420,7 @@ impl Codes {
             }
             // R must not be 0.
             CircleMethod::FixedRadius(rad) => {
-                if rad.abs() < 1e-10 {
+                if rad.abs() < FLOAT_VARIANCE {
                     return Err(ParserError::InvalidCircle(Some(method)));
                 }
             }
@@ -572,7 +491,7 @@ pub enum GCode {
     /// Linear Interpolate to new coordinates using provided feed rate.
     FeedMove {
         pos: PartialPoint,
-        feed: Option<Float>,
+        feed: Option<f32>,
     } = 1,
 
     /// G02
@@ -580,7 +499,7 @@ pub enum GCode {
     CWArcMove {
         pos: PartialPoint,
         method: CircleMethod,
-        feed: Option<Float>,
+        feed: Option<f32>,
     } = 2,
 
     /// G03
@@ -588,12 +507,12 @@ pub enum GCode {
     CCWArcMove {
         pos: PartialPoint,
         method: CircleMethod,
-        feed: Option<Float>,
+        feed: Option<f32>,
     } = 3,
 
     /// G04
-    /// Dwell (sec) blocking further code execution.
-    Dwell(Float) = 4,
+    /// Dwell, for seconds, blocking further code execution.
+    Dwell(f32) = 4,
 
     /// G17
     /// Select plane parallel to X and Y axes (**default for mills**).
@@ -621,19 +540,19 @@ pub enum GCode {
 
     /// G41
     /// 2D left cutter compensation.
-    LeftCutterComp(Int) = 41,
+    LeftCutterComp(u32) = 41,
 
     /// G42
     /// 2D right cutter compensation.
-    RightCutterComp(Int) = 42,
+    RightCutterComp(u32) = 42,
 
     /// G43
     /// Tool length compensation by addition.
-    ToolLenCompAdd(Int) = 43,
+    ToolLenCompAdd(u32) = 43,
 
     /// G44
     /// Tool length compensation by subtraction.
-    ToolLenCompSubtract(Int) = 44,
+    ToolLenCompSubtract(u32) = 44,
 
     /// G49
     /// Cancel tool length compensation (G43, G44).
@@ -686,8 +605,8 @@ impl GCode {
     /// # SAFETY
     /// It is certain that [`GCode`] enum specifies a primitive representation,
     /// therefore the discriminant may be accessed via *unsafe pointer casting*.
-    pub fn suffix(&self) -> Int {
-        unsafe { *(self as *const Self as *const usize) }
+    pub fn suffix(&self) -> u32 {
+        unsafe { *(self as *const Self as *const u32) }
     }
 
     /// Tries to construct a [`GCode`] by parsing a [`Code::G`].
@@ -726,7 +645,7 @@ impl GCode {
                 4 => {
                     // P can be used for milliseconds
                     if let Some(p) = codes.p.take() {
-                        Self::Dwell((p as f64) / 1000.0)
+                        Self::Dwell((p as f32) / 1000.0)
                     }
                     // X can be used for seconds
                     else if let Some(x) = codes.x.take() {
@@ -819,7 +738,7 @@ impl GCode {
     ///
     /// ## Reference
     /// [Haas](https://www.haascnc.com/service/service-content/guide-procedures/what-are-g-codes.html#gsc.tab=0)
-    pub fn group(&self) -> Group {
+    pub fn group(&self) -> u8 {
         match self {
             // non-modal codes
             Self::Dwell(_) | Self::MachineCoord(_) => 0,
@@ -968,9 +887,9 @@ impl Display for GCode {
 pub struct GCodes {
     codes: Vec<GCode>,
     /// Suffixes already present in the `codes` vector.
-    suffixes: Vec<Int>,
+    suffixes: Vec<u32>,
     /// Groups already present in the `codes` vector.
-    groups: Vec<Group>,
+    groups: Vec<u8>,
 }
 
 impl GCodes {
@@ -1034,11 +953,11 @@ pub enum MCode {
 
     /// M03
     /// Spindle forward.
-    SpindleFwd(Option<Int>) = 3,
+    SpindleFwd(Option<u32>) = 3,
 
     /// M04
     /// Spindle reverse.
-    SpindleRev(Option<Int>) = 4,
+    SpindleRev(Option<u32>) = 4,
 
     /// M05
     /// Spindle stop.
@@ -1046,7 +965,7 @@ pub enum MCode {
 
     /// M06
     /// Tool change.
-    ToolChange(Option<Int>) = 6,
+    ToolChange(Option<u32>) = 6,
 
     /// M08
     /// Coolant on.
@@ -1071,8 +990,8 @@ impl MCode {
     /// # SAFETY
     /// It is certain that [`MCode`] enum specifies a primitive representation,
     /// therefore the discriminant may be accessed via *unsafe pointer casting*.
-    pub fn suffix(&self) -> Int {
-        unsafe { *(self as *const Self as *const usize) }
+    pub fn suffix(&self) -> u32 {
+        unsafe { *(self as *const Self as *const u32) }
     }
 
     /// Tries to construct a [`MCode`] by parsing a [`Code::M`].
@@ -1265,30 +1184,30 @@ impl Iterator for Parser {
 pub enum ParserError {
     /// This prefix does not support the type of suffix provided.
     #[error("wrong suffix type found after prefix: '{}'", *.0 as char)]
-    WrongSuffixType(Prefix),
+    WrongSuffixType(u8),
     /// The code prefix provided is invalid/unimplemented
     #[error("unsupported prefix: '{}'", *.0 as char)]
-    UnknownPrefix(Prefix),
+    UnknownPrefix(u8),
     /// Same G-code found atleast twice.
     #[error("duplicate GCode found: 'G{0}'")]
-    DuplicateGCode(Int),
+    DuplicateGCode(u32),
     /// Prefix and suffix make an invalid G-code.
     #[error("unsupported GCode: 'G{0}'")]
-    InvalidGCode(Int),
+    InvalidGCode(u32),
     /// G-codes detected from the same group.
     #[error("duplicate GCode found from group: '{0}'")]
-    DuplicateGCodeGroup(Group),
+    DuplicateGCodeGroup(u8),
     /// Multiple codes of same prefix in the same line.
     /// Only multiple G-codes are allowed in one line.
     #[error("duplicate prefix: '{}'", *.0 as char)]
-    DuplicatePrefix(Prefix),
+    DuplicatePrefix(u8),
     /// The tokens passed along with a 'G' prefix token
     /// do not meet the requirements of the said GCode variant.
     #[error("requirements for 'G{0}' not met")]
-    InvalidParamForGCode(Int),
+    InvalidParamForGCode(u32),
     /// Missing token required for a GCode variant.
     #[error("could not find required prefix '{}' for parsing GCode", *.0 as char)]
-    MissingCodeForGCode(Prefix),
+    MissingCodeForGCode(u8),
     /// The code block contains codes for both variants of circle methods.
     #[error("codes from both arc methods detected")]
     AmbiguousCircleMethod,
@@ -1297,13 +1216,13 @@ pub enum ParserError {
     InvalidCircle(Option<CircleMethod>),
     /// Prefix and suffix make an invalid M-code.
     #[error("unsupported MCode: 'M{0}'")]
-    InvalidMCode(Int),
+    InvalidMCode(u32),
     /// Missing token required for a MCode variant.
     #[error("could not find required prefix '{}' for parsing MCode", *.0 as char)]
-    MissingCodeForMCode(Prefix),
+    MissingCodeForMCode(u8),
     /// Prefix was found after parsing G & M Codes, but cannot be parsed on its own.
     #[error("unconsumed prefix: '{}'", *.0 as char)]
-    UnexpectedPrefix(Prefix),
+    UnexpectedPrefix(u8),
     #[error("tokenization failed")]
     Lexer(#[from] LexerError),
 }
@@ -1329,21 +1248,24 @@ mod tests {
     // helper for tests
     // returns a parsed vector of gcodes
     fn tokenize_parse(tokens: &str) -> Result<Vec<GCode>, ParserError> {
-        let mut parser = Parser::new(Lexer::new(Source::from_string(tokens)));
+        let mut parser = Parser::new(Lexer::new(Source::from_str(tokens)));
         parser.next().unwrap().map(|block| block.gcodes.collect())
     }
 
     // helper for tests
     // returns a parsed mcode
     fn tokenize_parse_m(tokens: &str) -> Result<MCode, ParserError> {
-        let mut parser = Parser::new(Lexer::new(Source::from_string(tokens)));
+        let mut parser = Parser::new(Lexer::new(Source::from_str(tokens)));
         parser.next().unwrap().map(|block| block.mcode.unwrap())
     }
 
     #[test]
     // Test to get the suffix of a code by accessing its discriminant.
     fn get_code_suffix() {
-        assert_eq!(GCode::RapidMove(PartialPoint(None, None, None)).suffix(), 0);
+        assert_eq!(
+            GCode::RapidMove(PartialPoint::new(None, None, None)).suffix(),
+            0
+        );
 
         assert_eq!(MCode::Stop.suffix(), 0);
     }
@@ -1412,7 +1334,11 @@ mod tests {
     fn parse_rapid_move() {
         assert_eq!(
             tokenize_parse("G0 X0. Y0.").unwrap(),
-            vec![GCode::RapidMove(PartialPoint(Some(0.0), Some(0.0), None))]
+            vec![GCode::RapidMove(PartialPoint::new(
+                Some(0.0),
+                Some(0.0),
+                None
+            ))]
         );
     }
 
@@ -1421,7 +1347,7 @@ mod tests {
         assert_eq!(
             tokenize_parse("G1 X0. Y0. F20.").unwrap(),
             vec![GCode::FeedMove {
-                pos: PartialPoint(Some(0.0), Some(0.0), None),
+                pos: PartialPoint::new(Some(0.0), Some(0.0), None),
                 feed: Some(20.0)
             }]
         );
@@ -1432,8 +1358,8 @@ mod tests {
         assert_eq!(
             tokenize_parse("G2 X0. I1. J2. F20.").unwrap(),
             vec![GCode::CWArcMove {
-                pos: PartialPoint(Some(0.0), None, None),
-                method: CircleMethod::RelativePoint(PartialPoint(Some(1.0), Some(2.0), None)),
+                pos: PartialPoint::new(Some(0.0), None, None),
+                method: CircleMethod::RelativePoint(PartialPoint::new(Some(1.0), Some(2.0), None)),
                 feed: Some(20.0)
             }]
         );
@@ -1441,7 +1367,7 @@ mod tests {
         assert_eq!(
             tokenize_parse("G2 Y0. R20. F20.").unwrap(),
             vec![GCode::CWArcMove {
-                pos: PartialPoint(None, Some(0.0), None),
+                pos: PartialPoint::new(None, Some(0.0), None),
                 method: CircleMethod::FixedRadius(20.0),
                 feed: Some(20.0)
             }]
@@ -1453,8 +1379,8 @@ mod tests {
         assert_eq!(
             tokenize_parse("G3 X0. I1. J2. F20.").unwrap(),
             vec![GCode::CCWArcMove {
-                pos: PartialPoint(Some(0.0), None, None),
-                method: CircleMethod::RelativePoint(PartialPoint(Some(1.0), Some(2.0), None)),
+                pos: PartialPoint::new(Some(0.0), None, None),
+                method: CircleMethod::RelativePoint(PartialPoint::new(Some(1.0), Some(2.0), None)),
                 feed: Some(20.0)
             }]
         );
@@ -1462,7 +1388,7 @@ mod tests {
         assert_eq!(
             tokenize_parse("G3 Y0. R20. F20.").unwrap(),
             vec![GCode::CCWArcMove {
-                pos: PartialPoint(None, Some(0.0), None),
+                pos: PartialPoint::new(None, Some(0.0), None),
                 method: CircleMethod::FixedRadius(20.0),
                 feed: Some(20.0)
             }]
@@ -1539,7 +1465,7 @@ mod tests {
 
         assert_eq!(
             tokenize_parse("G53 X0. Z0.").unwrap(),
-            vec![GCode::MachineCoord(PartialPoint(
+            vec![GCode::MachineCoord(PartialPoint::new(
                 Some(0.0),
                 None,
                 Some(0.0)
@@ -1621,32 +1547,5 @@ mod tests {
     #[test]
     fn parse_program_end() {
         assert_eq!(tokenize_parse_m("M30").unwrap(), MCode::End);
-    }
-
-    #[test]
-    /// Test all setters for [`Point`]
-    fn point_set() {
-        let mut p = Point::new(0.0, 0.0, 0.0);
-
-        p.set(1.0, 2.0, 3.0);
-        assert_eq!(p.get(), (1.0, 2.0, 3.0));
-
-        p.set_optional(Some(-1.0), None, Some(-3.0));
-        assert_eq!(p.get(), (-1.0, 2.0, -3.0));
-    }
-
-    #[test]
-    fn point_negative() {
-        assert!(Point::new(-10.0, 0.0, 20.0).any_negative());
-    }
-
-    #[test]
-    fn point_comparisons() {
-        let p = Point::new(100.0, 200.0, 300.0);
-        let mid = Point::new(200.0, 200.0, 200.0);
-
-        // atleast one field is over and under `mid`
-        assert!(p.over_abs(&mid));
-        assert!(p.under_abs(&mid));
     }
 }

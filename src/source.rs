@@ -78,29 +78,18 @@ impl Source {
     /// - **transmission symbol**, the `%` character.
     /// - **empty lines.**
     pub fn from_lines(lines: Lines) -> Self {
-        // remove everything from '(' to end
-        let uncommented = lines.map(|line| {
-            line.split('(')
-                .next()
-                .expect("At least one element must exist after splitting.")
-                .to_string()
-        });
-
-        // remove everything from ';' to end and trim
-        let nocolon = uncommented.map(|line| {
-            line.split(';')
-                .next()
-                .expect("At least one element must exist after splitting.")
-                .trim()
-                .to_string()
-        });
-
-        // remove deleted blocks and control character
-        let filtered = nocolon
-            .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%'));
+        // filter_map performs worse here
+        let sanitized = lines
+            .map(|line| {
+                line.split(['(', ';'])
+                    .next()
+                    .expect("At least one element must exist after splitting.")
+                    .trim() // remove everything from '(' or ';' to end
+            })
+            .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%')); // delete blocks and control character
 
         Self {
-            lines: filtered.map(Line).collect(),
+            lines: sanitized.map(|l| Line(l.to_string())).collect(),
             index: 0,
         }
     }
@@ -116,6 +105,11 @@ impl Source {
     /// as a `string slice`.
     pub fn get(&self, index: usize) -> Option<&str> {
         self.lines.get(index).map(|line| line.as_str())
+    }
+
+    /// Returns the total number of blocks in the [`Source`].
+    pub fn len(&self) -> usize {
+        self.lines.len()
     }
 }
 
@@ -219,10 +213,14 @@ pub fn is_readable_stdin() -> bool {
 /// Possible errors that can happen during [`Source`] construction.
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
+    /// Failed to read the source from the file or `stdin`.
     #[error("file/stdin read failed")]
     IO(#[from] std::io::Error),
+    /// Data received from `stdin` in not encoded in UTF-8.
     #[error("could not convert stdin bytes to string")]
     UTF(#[from] std::str::Utf8Error),
+    /// No G-code source target provided.
+    /// No source file path was supplied and the `stdin` is also not readable.
     #[error("no gcode file provided via filepath or stdin")]
     StdinNotReadable,
 }

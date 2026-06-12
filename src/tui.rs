@@ -33,7 +33,7 @@ use winit::event_loop::EventLoopProxy;
 #[allow(unused_imports)]
 use crate::{
     BOUNDARY, Command, GRID, ORIGIN, SINGLE, Signal, TOOL, View,
-    config::Config,
+    cli::Cli,
     gui::Gui,
     interpreter::InterpreterError,
     interpreter::{BlockSummary, Interpreter},
@@ -44,6 +44,7 @@ use crate::{
     parser::{CodeBlock, MCode, Parser},
     source::Source,
 };
+use crate::{config::Config, config::Point};
 
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
@@ -141,10 +142,11 @@ impl Tui {
     /// Returns [`Error`](anyhow::Error) on failure to read [`Source`] file or build the [`Machine`].
     pub fn build(
         signal: Receiver<Signal>,
-        config: Config,
+        cli: &Cli,
+        config: &Config,
         proxy: EventLoopProxy<Command>,
     ) -> anyhow::Result<Self> {
-        let src = match &config.filepath {
+        let src = match &cli.source {
             Some(path) => Source::from_file(path),
             None => Source::from_stdin(),
         }?;
@@ -160,7 +162,7 @@ impl Tui {
             boundary: BOUNDARY,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
-                Machine::build(config.max_travels(), Unit::default())?,
+                Machine::build(Point::new(500.0, 250.0, 250.0), Unit::default())?,
             ),
             current: 0,
             total: None,
@@ -604,17 +606,17 @@ impl Tui {
         let mut line1 = vec![
             Span::styled("X", THEME.machine),
             Span::styled(": ", THEME.root),
-            Span::styled(pos.x().to_string(), THEME.root.bold()),
+            Span::styled(pos.x.to_string(), THEME.root.bold()),
             unit.clone(),
             Span::styled(" | ", THEME.root),
             Span::styled("Y", THEME.machine),
             Span::styled(": ", THEME.root),
-            Span::styled(pos.y().to_string(), THEME.root.bold()),
+            Span::styled(pos.y.to_string(), THEME.root.bold()),
             unit.clone(),
             Span::styled(" | ", THEME.root),
             Span::styled("Z", THEME.machine),
             Span::styled(": ", THEME.root),
-            Span::styled(pos.z().to_string(), THEME.root.bold()),
+            Span::styled(pos.z.to_string(), THEME.root.bold()),
             unit.clone(),
             Span::styled(" | ", THEME.root),
             Span::styled("T", THEME.machine),

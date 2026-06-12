@@ -1,16 +1,20 @@
-pub mod config;
-pub mod geometry;
-pub mod gui;
-pub mod interpreter;
+mod cli;
+mod config;
+mod geometry;
+mod gui;
+mod interpreter;
 pub mod lexer;
-pub mod machine;
+mod machine;
 pub mod parser;
 pub mod source;
-pub mod tui;
+mod tui;
 
-use crate::{config::Config, gui::Gui, machine::MotionSummary, tui::Tui};
+use crate::{cli::Cli, config::Config, gui::Gui, machine::MotionSummary, tui::Tui};
 use clap::Parser;
 use std::fmt::Display;
+
+/// Allowed variance when comparing floating points.
+const FLOAT_VARIANCE: f32 = 1e-5;
 
 /// Single block execution at program start.
 pub const SINGLE: bool = false;
@@ -94,11 +98,13 @@ fn display_banner() {
 /// using a [`Channel`](std::sync::mpsc::channel) and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
 pub fn run() -> anyhow::Result<()> {
     display_banner();
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let config = Config::parse();
 
-    let gui = Gui::build(sender, config.max_travels())?;
-    let tui = Tui::build(receiver, config, gui.create_proxy())?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let cli = Cli::parse();
+    let config = Config::from_file(cli.config.as_str())?;
+
+    let gui = Gui::build(sender)?;
+    let tui = Tui::build(receiver, &cli, &config, gui.create_proxy())?;
 
     let tui = std::thread::Builder::new()
         .name("TUI".to_string())
