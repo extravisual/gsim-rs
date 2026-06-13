@@ -117,3 +117,50 @@ pub fn run() -> anyhow::Result<()> {
 
     res
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs::OpenOptions;
+
+    use serde::Serialize;
+
+    use crate::config::{AxisPoint, Config, Point, ToolConfig, Unit, ZeroPosition};
+
+    #[test]
+    fn create_default_config() -> anyhow::Result<()> {
+        let example_config = Config {
+            units: Unit::Metric,
+            stock_size: Point {
+                x: 1.0,
+                y: 1.0,
+                z: 1.0,
+            },
+            zero_pos: ZeroPosition {
+                x: AxisPoint::Zero,
+                y: AxisPoint::Zero,
+                z: AxisPoint::Zero,
+            },
+            start_pos: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            tools: vec![ToolConfig {
+                number: 1,
+                diameter: 1.0,
+                length: 1.0,
+            }],
+        };
+
+        println!("{:#?}", example_config);
+
+        let f = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open("gsim_example.json")?;
+        serde_json::ser::to_writer_pretty(f, &example_config)?;
+
+        Ok(())
+    }
+}

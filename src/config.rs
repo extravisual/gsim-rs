@@ -51,10 +51,10 @@
 //! - Each tool `diameter` and `length` **must** be positive and non-zero.
 
 use crate::FLOAT_VARIANCE;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Program configuration at start.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Unit system applied to all dimensional values (e.g. `stock_size`, `tool_length`).
@@ -72,7 +72,7 @@ pub struct Config {
 }
 
 /// Possible unit standards for dimensional values.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize,)]
 #[serde(rename_all = "lowercase")]
 pub enum Unit {
     Metric,
@@ -80,7 +80,7 @@ pub enum Unit {
 }
 
 /// A 3D point in space.
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize,)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
@@ -96,7 +96,7 @@ impl PartialEq for Point {
 }
 
 /// Tool configuration.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Serialize,)]
 pub struct ToolConfig {
     /// Number of the tool.
     /// This is denoted with a `T` code in G-code.
@@ -116,7 +116,7 @@ pub struct ToolConfig {
 ///
 /// This can only be at the middle or any of the ends of each axis of the stock.
 /// Therefore, giving us 27 total possible combinations.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Serialize,)]
 pub struct ZeroPosition {
     pub x: AxisPoint,
     pub y: AxisPoint,
@@ -124,7 +124,7 @@ pub struct ZeroPosition {
 }
 
 /// Possible zero position on each axis of the stock.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Serialize,)]
 #[serde(rename_all = "lowercase")]
 pub enum AxisPoint {
     Zero,
