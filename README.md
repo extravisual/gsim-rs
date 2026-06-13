@@ -1,12 +1,13 @@
-# GSim-RS
+# GSim-RS - Lathe Edition
+This is a fork of ![GSim-RS](https://github.com/navrajkalsi/gsim-rs) modified to suit my use case as a hobbyist CNC lathe user. As of writing this, all that's changed is added a view orientation for lathe and made the tool horizontal.
 
-![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true)
+<!-- ![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true) -->
 
-<div align="center">
+<!-- <div align="center">
 
 [![Crates](https://img.shields.io/crates/v/gsim-rs?logo=Rust&color=%23ffaa00)](https://crates.io/crates/gsim-rs) [![Github](https://img.shields.io/badge/navrajkalsi%2Fgsim-rs?logo=GitHub&label=repo&color=%234444ff)](https://github.com/navrajkalsi/gsim-rs) [![Docs](https://img.shields.io/docsrs/gsim-rs?logo=Rust)](https://docs.rs/gsim-rs/latest/gsim_rs/)
 
-</div>
+</div> -->
 
 A G-code simulator written in Rust.
 Parses, interprets, manages machine state and simulates the toolpaths.
