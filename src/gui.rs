@@ -136,7 +136,7 @@ impl ApplicationHandler<Command> for Gui {
         let window = match event_loop.create_window(
             Window::default_attributes()
                 .with_active(false)
-                .with_decorations(false)
+                .with_decorations(true)
                 .with_visible(true)
                 .with_title("GSim"),
         ) {
